@@ -21,6 +21,12 @@ import {
 } from 'lucide-react'
 
 // ============================================
+// Webhook n8n Configuration
+// ============================================
+const N8N_WEBHOOK_URL = 'https://curso-orangutan-n8n.crkear.easypanel.host/webhook/egremy/approval-requested'
+const N8N_WEBHOOK_SECRET = 'EgremySpaces2024SecretKey!'
+
+// ============================================
 // TaskDrawer - Panel lateral de detalles
 // ============================================
 
@@ -49,6 +55,7 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
   const [isRequestingApproval, setIsRequestingApproval] = React.useState(false)
   const [approvalLink, setApprovalLink] = React.useState<string | null>(null)
   const [linkCopied, setLinkCopied] = React.useState(false)
+  const [telegramSent, setTelegramSent] = React.useState(false)
 
   // Load task details and comments
   React.useEffect(() => {
@@ -139,9 +146,6 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
   // ============================================
   const handleRequestApproval = async () => {
     console.log('🚀 handleRequestApproval iniciado')
-    console.log('selectedTask:', selectedTask)
-    console.log('clientName:', clientName)
-    console.log('clientPhone:', clientPhone)
     
     if (!selectedTask) {
       console.log('❌ No hay tarea seleccionada')
@@ -150,32 +154,37 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
     }
     
     if (!clientName.trim()) {
-      console.log('❌ Falta nombre del cliente')
       alert('Por favor ingresa el nombre del cliente')
       return
     }
     
     if (!clientPhone.trim()) {
-      console.log('❌ Falta teléfono del cliente')
       alert('Por favor ingresa el teléfono del cliente')
       return
     }
 
     setIsRequestingApproval(true)
+    setTelegramSent(false)
     
     try {
-      console.log('📡 Generando token de aprobación...')
-      
-      // Generar token único
+      // 1. Generar token único
       const token = `${selectedTask.id.slice(0, 8)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
       console.log('🔑 Token generado:', token)
       
-      // Calcular expiración (48 horas)
+      // 2. Calcular expiración (48 horas)
       const expiresAt = new Date()
       expiresAt.setHours(expiresAt.getHours() + 48)
-      console.log('⏰ Expira:', expiresAt.toISOString())
+      
+      // Formato legible para el mensaje
+      const expiresAtFormatted = expiresAt.toLocaleString('es-MX', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
 
-      // Datos a insertar
+      // 3. Insertar en approval_tokens
       const insertData = {
         task_id: selectedTask.id,
         token: token,
@@ -184,27 +193,21 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
         expires_at: expiresAt.toISOString(),
         status: 'pending'
       }
-      console.log('📝 Datos a insertar:', insertData)
 
-      // Insertar en approval_tokens
-      console.log('📡 Enviando INSERT a Supabase...')
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('approval_tokens')
         .insert(insertData)
         .select()
         .single()
-
-      console.log('📦 Respuesta INSERT:', { data, error })
 
       if (error) {
         console.error('❌ Error en INSERT:', error)
         throw error
       }
 
-      console.log('✅ Token insertado correctamente')
+      console.log('✅ Token insertado en Supabase')
 
-      // Actualizar estado de la tarea a "needs_client_approval"
-      console.log('📡 Actualizando estado de la tarea...')
+      // 4. Actualizar estado de la tarea
       const { error: taskError } = await supabase
         .from('tasks')
         .update({ 
@@ -217,30 +220,66 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
       if (taskError) {
         console.error('⚠️ Error actualizando tarea:', taskError)
       } else {
-        console.log('✅ Tarea actualizada a needs_client_approval')
         setEditedStatus('needs_client_approval')
         if (onTaskUpdated) {
           onTaskUpdated({ ...selectedTask, status: 'needs_client_approval' })
         }
       }
 
-      // Generar link
+      // 5. Generar link de aprobación
       const baseUrl = window.location.origin
-      const link = `${baseUrl}/approval/${token}`
+      const link = `${baseUrl}/approve/${token}`
       setApprovalLink(link)
       
-      console.log('✅ Token creado:', token)
-      console.log('🔗 Link:', link)
+      console.log('🔗 Link generado:', link)
+
+      // ============================================
+      // 6. 🚀 LLAMAR AL WEBHOOK DE N8N
+      // ============================================
+      console.log('📡 Enviando notificación a n8n...')
+      
+      // Limpiar teléfono (solo números)
+      const cleanPhone = clientPhone.replace(/\D/g, '')
+      
+      const webhookPayload = {
+        client_phone: cleanPhone,
+        approval_url: link,
+        task_title: selectedTask.title,
+        project_name: selectedTask.project?.name || 'Proyecto',
+        expires_at: expiresAtFormatted
+      }
+      
+      console.log('📦 Payload:', webhookPayload)
+
+      try {
+        const webhookResponse = await fetch(N8N_WEBHOOK_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${N8N_WEBHOOK_SECRET}`
+          },
+          body: JSON.stringify(webhookPayload)
+        })
+
+        const webhookResult = await webhookResponse.json()
+        
+        if (webhookResponse.ok) {
+          console.log('✅ n8n notificado exitosamente:', webhookResult)
+          setTelegramSent(true)
+        } else {
+          console.error('⚠️ n8n respondió con error:', webhookResult)
+        }
+      } catch (webhookError) {
+        console.error('⚠️ Error llamando webhook n8n:', webhookError)
+      }
+
+      console.log('✅ Proceso completado')
 
     } catch (err: any) {
       console.error('❌ Error completo:', err)
-      console.error('❌ Error message:', err?.message)
-      console.error('❌ Error details:', err?.details)
-      console.error('❌ Error hint:', err?.hint)
       alert(`Error al generar el link: ${err?.message || 'Error desconocido'}`)
     } finally {
       setIsRequestingApproval(false)
-      console.log('🏁 handleRequestApproval finalizado')
     }
   }
 
@@ -264,6 +303,7 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
     setClientPhone('')
     setApprovalLink(null)
     setLinkCopied(false)
+    setTelegramSent(false)
   }
 
   // Submit comment
@@ -737,6 +777,16 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
                         Comparte este link con <strong>{clientName}</strong>
                       </p>
                     </div>
+
+                    {/* Telegram status */}
+                    {telegramSent && (
+                      <div className="p-3 rounded-lg bg-accent-success/10 border border-accent-success/20">
+                        <p className="text-xs text-accent-success flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4" />
+                          ✅ Notificación enviada a Telegram
+                        </p>
+                      </div>
+                    )}
 
                     {/* Link box */}
                     <div className="p-3 rounded-lg bg-bg-secondary border border-bg-tertiary">
