@@ -228,7 +228,7 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
 
       // 5. Generar link de aprobación
       const baseUrl = window.location.origin
-      const link = `${baseUrl}/approve/${token}`
+      const link = `${baseUrl}/approval/${token}`
       setApprovalLink(link)
       
       console.log('🔗 Link generado:', link)
