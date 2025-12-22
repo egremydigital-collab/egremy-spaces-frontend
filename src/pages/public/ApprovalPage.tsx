@@ -40,12 +40,26 @@ interface TaskData {
   google_doc_url: string | null
   project_id: string | null
   previous_status: string | null
+  organization_id: string | null
 }
 
 interface ProjectData {
   id: string
   name: string
   client_name: string | null
+}
+
+// ============================================
+// Mapa de flujo de estados n8n
+// ============================================
+const NEXT_STATUS: Record<string, string> = {
+  'discovery': 'design',
+  'design': 'build',
+  'build': 'qa',
+  'qa': 'deploy',
+  'deploy': 'live',
+  'live': 'optimization',
+  'optimization': 'optimization', // Ya está al final
 }
 
 // ============================================
@@ -182,14 +196,23 @@ export function ApprovalPage() {
       console.log('✅ Token actualizado:', tokenUpdateData)
 
       // 2. Determinar el nuevo estado de la tarea
-      // Si aprueba → deploy
-      // Si rechaza → volver al estado anterior o 'build'
-      const newTaskStatus = approvalDecision === 'approved' 
-        ? 'deploy'
-        : (task?.previous_status || 'build')
+      // previous_status contiene el estado ANTES de needs_client_approval
+      const previousStatus = task?.previous_status || 'build'
+      
+      let newTaskStatus: string
+      if (approvalDecision === 'approved') {
+        // Si aprueba → avanzar al SIGUIENTE estado del flujo
+        newTaskStatus = NEXT_STATUS[previousStatus] || 'deploy'
+        console.log(`📈 Aprobado: ${previousStatus} → ${newTaskStatus}`)
+      } else {
+        // Si rechaza → volver al estado anterior para correcciones
+        newTaskStatus = previousStatus
+        console.log(`↩️ Rechazado: volviendo a ${previousStatus}`)
+      }
 
       console.log('📡 Actualizando tarea a estado:', newTaskStatus)
       console.log('📡 Estado anterior era:', task?.status)
+      console.log('📡 Previous status guardado:', previousStatus)
 
       // 3. Actualizar el estado de la tarea
       const { data: taskUpdateData, error: taskError } = await supabase
@@ -213,13 +236,14 @@ export function ApprovalPage() {
       }
 
       // 4. Agregar comentario con el feedback (si hay)
-      if (feedback && feedback.trim()) {
+      if (feedback && feedback.trim() && task?.organization_id) {
         console.log('📡 Agregando comentario con feedback...')
         const { error: commentError } = await supabase
           .from('comments')
           .insert({
             task_id: approvalToken.task_id,
-            content: `**Feedback del cliente (${approvalDecision === 'approved' ? 'Aprobado' : 'Cambios solicitados'}):**\n\n${feedback}`,
+            organization_id: task.organization_id,
+            content: `**Feedback del cliente (${approvalDecision === 'approved' ? 'Aprobado ✅' : 'Cambios solicitados 🔄'}):**\n\n${feedback}`,
             is_client_comment: true,
           })
 
