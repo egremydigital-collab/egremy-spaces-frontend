@@ -32,9 +32,10 @@ const N8N_WEBHOOK_SECRET = 'EgremySpaces2024SecretKey!'
 
 interface TaskDrawerProps {
   onTaskUpdated?: (task: TaskDetailed) => void
+  onRefreshTasks?: () => void // 🆕 Nueva prop para refrescar el Kanban
 }
 
-export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
+export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   const { selectedTask, taskDrawerOpen, closeTaskDrawer } = useUIStore()
   
   // State
@@ -56,6 +57,7 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
   const [approvalLink, setApprovalLink] = React.useState<string | null>(null)
   const [linkCopied, setLinkCopied] = React.useState(false)
   const [telegramSent, setTelegramSent] = React.useState(false)
+  const [autoCloseCountdown, setAutoCloseCountdown] = React.useState<number | null>(null) // 🆕
 
   // Load task details and comments
   React.useEffect(() => {
@@ -70,7 +72,11 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (showApprovalModal) {
-          setShowApprovalModal(false)
+          if (approvalLink) {
+            handleCloseEverything()
+          } else {
+            resetApprovalModal()
+          }
         } else {
           closeTaskDrawer()
         }
@@ -78,7 +84,7 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
     }
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [closeTaskDrawer, showApprovalModal])
+  }, [closeTaskDrawer, showApprovalModal, approvalLink])
 
   // Load comments
   const loadComments = async () => {
@@ -139,6 +145,33 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
     } finally {
       setIsSaving(false)
     }
+  }
+
+  // ============================================
+  // 🆕 Cerrar TODO (modal + drawer + refrescar)
+  // ============================================
+  const handleCloseEverything = () => {
+    console.log('🚪 Cerrando todo y refrescando...')
+    
+    // 1. Reset modal state
+    setShowApprovalModal(false)
+    setClientName('')
+    setClientPhone('')
+    setApprovalLink(null)
+    setLinkCopied(false)
+    setTelegramSent(false)
+    setAutoCloseCountdown(null)
+    
+    // 2. PRIMERO refrescar el Kanban (antes de cerrar el drawer)
+    if (onRefreshTasks) {
+      console.log('🔄 Refrescando Kanban...')
+      onRefreshTasks()
+    }
+    
+    // 3. DESPUÉS cerrar el drawer (con pequeño delay para que el refresh inicie)
+    setTimeout(() => {
+      closeTaskDrawer()
+    }, 50)
   }
 
   // ============================================
@@ -275,6 +308,40 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
 
       console.log('✅ Proceso completado')
 
+      // ============================================
+      // 7. 🆕 AUTO-CERRAR DESPUÉS DE 3 SEGUNDOS
+      // ============================================
+      console.log('⏱️ Iniciando auto-cierre en 3 segundos...')
+      
+      setAutoCloseCountdown(3)
+      
+      setTimeout(() => setAutoCloseCountdown(2), 1000)
+      setTimeout(() => setAutoCloseCountdown(1), 2000)
+      
+      setTimeout(() => {
+        console.log('🚪 Auto-cerrando...')
+        
+        // Reset modal state
+        setShowApprovalModal(false)
+        setClientName('')
+        setClientPhone('')
+        setApprovalLink(null)
+        setLinkCopied(false)
+        setTelegramSent(false)
+        setAutoCloseCountdown(null)
+        
+        // PRIMERO refrescar
+        if (onRefreshTasks) {
+          console.log('🔄 Refrescando Kanban...')
+          onRefreshTasks()
+        }
+        
+        // DESPUÉS cerrar drawer
+        setTimeout(() => {
+          closeTaskDrawer()
+        }, 100)
+      }, 3000)
+
     } catch (err: any) {
       console.error('❌ Error completo:', err)
       alert(`Error al generar el link: ${err?.message || 'Error desconocido'}`)
@@ -296,7 +363,7 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
     }
   }
 
-  // Resetear modal de aprobación
+  // Resetear modal de aprobación (sin cerrar drawer)
   const resetApprovalModal = () => {
     setShowApprovalModal(false)
     setClientName('')
@@ -304,6 +371,7 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
     setApprovalLink(null)
     setLinkCopied(false)
     setTelegramSent(false)
+    setAutoCloseCountdown(null)
   }
 
   // Submit comment
@@ -690,7 +758,7 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
           {/* Modal Overlay */}
           <div
             className="fixed inset-0 bg-black/50 z-[60]"
-            onClick={resetApprovalModal}
+            onClick={() => approvalLink ? handleCloseEverything() : resetApprovalModal()}
           />
 
           {/* Modal Content */}
@@ -709,7 +777,7 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
                   Solicitar Aprobación
                 </h3>
                 <button
-                  onClick={resetApprovalModal}
+                  onClick={() => approvalLink ? handleCloseEverything() : resetApprovalModal()}
                   className="p-2 rounded-lg hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -824,6 +892,15 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
                         📱 Envía este link por <strong>WhatsApp</strong> al número: <strong>{clientPhone}</strong>
                       </p>
                     </div>
+
+                    {/* 🆕 Auto-close countdown */}
+                    {autoCloseCountdown !== null && (
+                      <div className="text-center">
+                        <p className="text-xs text-text-secondary">
+                          Cerrando automáticamente en <strong className="text-accent-primary">{autoCloseCountdown}</strong> segundos...
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -857,7 +934,7 @@ export function TaskDrawer({ onTaskUpdated }: TaskDrawerProps) {
                     </Button>
                   </>
                 ) : (
-                  <Button onClick={resetApprovalModal}>
+                  <Button onClick={handleCloseEverything}>
                     Cerrar
                   </Button>
                 )}
