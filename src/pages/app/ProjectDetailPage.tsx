@@ -276,10 +276,12 @@ export function ProjectDetailPage() {
         />
       )}
 
-      {/* Task Drawer */}
-      {taskDrawerOpen && (
-        <TaskDrawer onTaskUpdated={handleTaskUpdated} />
-      )}
+    {taskDrawerOpen && (
+  <TaskDrawer 
+    onTaskUpdated={handleTaskUpdated} 
+    onRefreshTasks={loadProjectAndTasks}
+  />
+)}
     </div>
   )
 }
