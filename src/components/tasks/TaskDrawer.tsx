@@ -167,6 +167,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
     console.log('🔄 Refrescando Kanban...')
     await onRefreshTasks()
     console.log('✅ Kanban refrescado')
+    await new Promise(resolve => setTimeout(resolve, 200))
   }
   
   // 3. DESPUÉS cerrar drawer (ya con datos actualizados)
@@ -334,6 +335,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
     console.log('🔄 Refrescando Kanban...')
     await onRefreshTasks()
     console.log('✅ Kanban refrescado')
+    await new Promise(resolve => setTimeout(resolve, 200))
   }
   
   // 2. DESPUÉS cerrar drawer (ya con datos actualizados)
