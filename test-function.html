@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Egremy Social Engine</title>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <style>
+    body { font-family: Arial; max-width: 800px; margin: 40px auto; padding: 20px; }
+    button { padding: 10px 20px; margin: 5px; cursor: pointer; background: #10b981; color: white; border: none; border-radius: 5px; }
+    button:disabled { background: #ccc; }
+    pre { background: #1e1e1e; color: #0f0; padding: 15px; overflow: auto; max-height: 500px; border-radius: 5px; }
+    .success { color: #10b981; }
+    .error { color: #ef4444; }
+    input { padding: 10px; margin: 5px; width: 250px; border: 1px solid #ccc; border-radius: 5px; }
+    h1 { color: #333; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Test Egremy Social Engine</h1>
+  
+  <h3>1. Login</h3>
+  <input type="email" id="email" placeholder="Email" value="egremydigital@gmail.com">
+  <input type="password" id="password" placeholder="Password">
+  <button id="btnLogin">Login</button>
+  <p id="loginStatus"></p>
+
+  <h3>2. Obtener Hooks Sugeridos</h3>
+  <button id="btnHooks" disabled>🎣 Obtener 3 Hooks</button>
+  
+  <h3>3. Resultado</h3>
+  <pre id="result">Esperando login...</pre>
+
+  <script>
+    const SUPABASE_URL = 'https://ztdiaytppacqyfahpadh.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp0ZGlheXRwcGFjcXlmYWhwYWRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0MjYxODksImV4cCI6MjA4MjAwMjE4OX0.mCwEJx29AxGKitWddnTbi42WQKFLrY9sFlFCl4viAew';
+    const PROJECT_ID = '44fb4898-dd59-4df6-bf13-0f1d30cc42d9';
+    
+    const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    let accessToken = null;
+
+    document.getElementById('btnLogin').addEventListener('click', async function() {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      
+      document.getElementById('loginStatus').innerHTML = 'Conectando...';
+      
+      const { data, error } = await sbClient.auth.signInWithPassword({ email, password });
+      
+      if (error) {
+        document.getElementById('loginStatus').innerHTML = '<span class="error">❌ ' + error.message + '</span>';
+        return;
+      }
+      
+      accessToken = data.session.access_token;
+      document.getElementById('loginStatus').innerHTML = '<span class="success">✅ Login exitoso!</span>';
+      document.getElementById('btnHooks').disabled = false;
+      document.getElementById('result').textContent = 'Listo para probar. Haz clic en "Obtener 3 Hooks"';
+    });
+
+    document.getElementById('btnHooks').addEventListener('click', async function() {
+      document.getElementById('result').textContent = '⏳ Consultando hooks...';
+      
+      try {
+        const response = await fetch(SUPABASE_URL + '/functions/v1/generate-content', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + accessToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            project_id: PROJECT_ID,
+            mode: 'TEAM',
+            niche: 'Clínicas estéticas',
+            pillar: 'Tratamientos faciales',
+            objective: 'Leads',
+            awareness: 'Tibio',
+            duration: '30-60',
+            platform: 'IG',
+            language: 'ES',
+            cta_dest: 'DM'
+          })
+        });
+        
+        const data = await response.json();
+        document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        document.getElementById('result').innerHTML = '<span class="error">Error: ' + err.message + '</span>';
+      }
+    });
+  </script>
+</body>
+</html>

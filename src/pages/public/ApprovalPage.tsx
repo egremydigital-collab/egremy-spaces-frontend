@@ -50,6 +50,12 @@ interface ProjectData {
 }
 
 // ============================================
+// Configuración Webhook n8n
+// ============================================
+const N8N_DECISION_WEBHOOK_URL = 'https://curso-orangutan-n8n.crkear.easypanel.host/webhook/egremy/approval-decision'
+const N8N_WEBHOOK_SECRET = 'EgremySpaces2024SecretKey!'
+
+// ============================================
 // Mapa de flujo de estados n8n
 // ============================================
 const NEXT_STATUS: Record<string, string> = {
@@ -253,6 +259,44 @@ export function ApprovalPage() {
         } else {
           console.log('✅ Comentario agregado')
         }
+      }
+
+      // ============================================
+      // 5. 🚀 NOTIFICAR AL EQUIPO VÍA WEBHOOK N8N
+      // ============================================
+      console.log('📡 Notificando al equipo vía Telegram...')
+      
+      const webhookPayload = {
+        decision: approvalDecision,
+        project_name: project?.name || 'Proyecto',
+        task_title: task?.title || 'Tarea',
+        comment: feedback || 'Sin comentarios',
+        client_name: approvalToken.client_name,
+        next_status_suggested: newTaskStatus,
+      }
+      
+      console.log('📦 Payload decisión:', webhookPayload)
+
+      try {
+        const webhookResponse = await fetch(N8N_DECISION_WEBHOOK_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${N8N_WEBHOOK_SECRET}`
+          },
+          body: JSON.stringify(webhookPayload)
+        })
+
+        const webhookResult = await webhookResponse.json()
+        
+        if (webhookResponse.ok) {
+          console.log('✅ Equipo notificado por Telegram:', webhookResult)
+        } else {
+          console.error('⚠️ Error notificando al equipo:', webhookResult)
+        }
+      } catch (webhookError) {
+        console.error('⚠️ Error llamando webhook de decisión:', webhookError)
+        // No es crítico, continuar - la decisión ya se guardó
       }
 
       console.log('✅ Decisión guardada exitosamente')
