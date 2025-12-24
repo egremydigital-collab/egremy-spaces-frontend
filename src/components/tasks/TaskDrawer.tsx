@@ -151,28 +151,28 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   // 🆕 Cerrar TODO (modal + drawer + refrescar)
   // ============================================
   const handleCloseEverything = () => {
-    console.log('🚪 Cerrando todo y refrescando...')
-    
-    // 1. Reset modal state
-    setShowApprovalModal(false)
-    setClientName('')
-    setClientPhone('')
-    setApprovalLink(null)
-    setLinkCopied(false)
-    setTelegramSent(false)
-    setAutoCloseCountdown(null)
-    
-    // 2. PRIMERO refrescar el Kanban (antes de cerrar el drawer)
+  console.log('🚪 Cerrando todo y refrescando...')
+  
+  // 1. Reset modal state
+  setShowApprovalModal(false)
+  setClientName('')
+  setClientPhone('')
+  setApprovalLink(null)
+  setLinkCopied(false)
+  setTelegramSent(false)
+  setAutoCloseCountdown(null)
+  
+  // 2. PRIMERO cerrar el drawer
+  closeTaskDrawer()
+  
+  // 3. DESPUÉS refrescar (con delay para que el drawer termine de cerrarse)
+  setTimeout(() => {
     if (onRefreshTasks) {
       console.log('🔄 Refrescando Kanban...')
       onRefreshTasks()
     }
-    
-    // 3. DESPUÉS cerrar el drawer (con pequeño delay para que el refresh inicie)
-    setTimeout(() => {
-      closeTaskDrawer()
-    }, 50)
-  }
+  }, 100)
+}
 
   // ============================================
   // Solicitar Aprobación del Cliente
@@ -318,29 +318,29 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       setTimeout(() => setAutoCloseCountdown(2), 1000)
       setTimeout(() => setAutoCloseCountdown(1), 2000)
       
-      setTimeout(() => {
-        console.log('🚪 Auto-cerrando...')
-        
-        // Reset modal state
-        setShowApprovalModal(false)
-        setClientName('')
-        setClientPhone('')
-        setApprovalLink(null)
-        setLinkCopied(false)
-        setTelegramSent(false)
-        setAutoCloseCountdown(null)
-        
-        // PRIMERO refrescar
-        if (onRefreshTasks) {
-          console.log('🔄 Refrescando Kanban...')
-          onRefreshTasks()
-        }
-        
-        // DESPUÉS cerrar drawer
-        setTimeout(() => {
-          closeTaskDrawer()
-        }, 100)
-      }, 3000)
+     setTimeout(() => {
+  console.log('🚪 Auto-cerrando...')
+  
+  // Reset modal state
+  setShowApprovalModal(false)
+  setClientName('')
+  setClientPhone('')
+  setApprovalLink(null)
+  setLinkCopied(false)
+  setTelegramSent(false)
+  setAutoCloseCountdown(null)
+  
+  // PRIMERO cerrar drawer
+  closeTaskDrawer()
+  
+  // DESPUÉS refrescar (con delay para que el drawer termine)
+  setTimeout(() => {
+    if (onRefreshTasks) {
+      console.log('🔄 Refrescando Kanban...')
+      onRefreshTasks()
+    }
+  }, 100)
+}, 3000)
 
     } catch (err: any) {
       console.error('❌ Error completo:', err)
