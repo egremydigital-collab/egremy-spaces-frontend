@@ -82,6 +82,32 @@ export function ProjectDetailPage() {
     }
   }
 
+  // 🆕 Función para refrescar tasks con nueva referencia
+const refreshTasks = async () => {
+  console.log("🔄 refreshTasks() called")
+
+  const { data: tasksData, error: tasksError } = await supabase
+    .from('tasks')
+    .select(`
+      *,
+      assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
+      project:projects!tasks_project_id_fkey(name, slug, client_name)
+    `)
+    .eq('project_id', projectId)
+    .is('parent_task_id', null)
+    .order('position', { ascending: true })
+
+  if (tasksError) {
+    console.error("Error refreshing tasks:", tasksError)
+    return
+  }
+
+  const next = (tasksData || []).map((t) => ({ ...t }))
+  console.log("✅ refreshTasks() got", next.length, "tasks")
+
+  setTasks(next)
+}
+
   // Callback cuando se actualiza una tarea desde el drawer
   const handleTaskUpdated = (updatedTask: TaskDetailed) => {
     setTasks((prev) =>
@@ -279,7 +305,7 @@ export function ProjectDetailPage() {
     {taskDrawerOpen && (
   <TaskDrawer 
     onTaskUpdated={handleTaskUpdated} 
-    onRefreshTasks={loadProjectAndTasks}
+    onRefreshTasks={refreshTasks}
   />
 )}
     </div>
