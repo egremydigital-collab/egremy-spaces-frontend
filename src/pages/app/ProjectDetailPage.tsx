@@ -32,6 +32,7 @@ import { useDroppable } from '@dnd-kit/core'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import type { RealtimeChannel } from '@supabase/supabase-js'
+import { logStatusChange } from '@/lib/activity-logs'
 
 // ============================================
 // CONSTANTS
@@ -403,6 +404,8 @@ export function ProjectDetailPage() {
 
       console.log('✅ Estado guardado:', task.title, '→', newStatus)
       toast.success(`Tarea movida a ${STATUS_CONFIG[newStatus]?.label || newStatus}`)
+      // Log de actividad
+logStatusChange(taskId, previousStatus, newStatus, task.title)
     } catch (err) {
       console.error('❌ Error guardando estado:', err)
       toast.error('Error al mover la tarea. Revirtiendo cambio...')
