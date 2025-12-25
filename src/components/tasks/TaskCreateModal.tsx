@@ -2,27 +2,70 @@ import * as React from 'react'
 import { Button, Input, Textarea, Card, Spinner } from '@/components/ui'
 import { Select } from '@/components/ui/Select'
 import { useUIStore } from '@/stores/ui.store'
+import { useAuthStore } from '@/stores/auth.store'
 import { supabase } from '@/lib/supabase'
 import { KANBAN_COLUMNS, STATUS_LABELS } from '@/lib/utils'
 import type { TaskStatus, TaskDetailed } from '@/types'
 import { X } from 'lucide-react'
 
-interface TaskCreateModalProps {
-  projectId: string
-  organizationId: string
-  onSuccess: (task: TaskDetailed) => void
+interface Project {
+  id: string
+  name: string
+  organization_id: string
 }
 
-export function TaskCreateModal({ projectId, organizationId, onSuccess }: TaskCreateModalProps) {
+interface TaskCreateModalProps {
+  projectId?: string
+  organizationId?: string
+  onSuccess?: (task: TaskDetailed) => void
+}
+
+export function TaskCreateModal({ projectId: propProjectId, organizationId: propOrgId, onSuccess }: TaskCreateModalProps) {
   const { createTaskModalOpen, closeCreateTaskModal } = useUIStore()
+  const { profile } = useAuthStore()
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
+  // Projects list (para modo global)
+  const [projects, setProjects] = React.useState<Project[]>([])
+  const [loadingProjects, setLoadingProjects] = React.useState(false)
+
   // Form state
+  const [selectedProjectId, setSelectedProjectId] = React.useState(propProjectId || '')
   const [title, setTitle] = React.useState('')
   const [description, setDescription] = React.useState('')
   const [status, setStatus] = React.useState<TaskStatus>('discovery')
   const [priority, setPriority] = React.useState<'low' | 'medium' | 'high' | 'urgent'>('medium')
+
+  // Cargar proyectos si no hay projectId prop
+  React.useEffect(() => {
+    const loadProjects = async () => {
+      if (propProjectId || !createTaskModalOpen) return
+
+      setLoadingProjects(true)
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('id, name, organization_id')
+          .eq('is_archived', false)
+          .order('name')
+
+        if (!error && data) {
+          setProjects(data)
+          // Auto-seleccionar el primero si hay proyectos
+          if (data.length > 0 && !selectedProjectId) {
+            setSelectedProjectId(data[0].id)
+          }
+        }
+      } catch (err) {
+        console.error('Error loading projects:', err)
+      } finally {
+        setLoadingProjects(false)
+      }
+    }
+
+    loadProjects()
+  }, [createTaskModalOpen, propProjectId])
 
   // Reset form when modal closes
   React.useEffect(() => {
@@ -32,8 +75,18 @@ export function TaskCreateModal({ projectId, organizationId, onSuccess }: TaskCr
       setStatus('discovery')
       setPriority('medium')
       setError(null)
+      if (!propProjectId) {
+        setSelectedProjectId('')
+      }
     }
-  }, [createTaskModalOpen])
+  }, [createTaskModalOpen, propProjectId])
+
+  // Update selectedProjectId when prop changes
+  React.useEffect(() => {
+    if (propProjectId) {
+      setSelectedProjectId(propProjectId)
+    }
+  }, [propProjectId])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -42,6 +95,35 @@ export function TaskCreateModal({ projectId, organizationId, onSuccess }: TaskCr
     // Validación
     if (!title.trim()) {
       setError('El título es obligatorio')
+      return
+    }
+
+    const finalProjectId = propProjectId || selectedProjectId
+    if (!finalProjectId) {
+      setError('Debes seleccionar un proyecto')
+      return
+    }
+
+    // Obtener organization_id
+    let organizationId = propOrgId
+    if (!organizationId) {
+      const selectedProject = projects.find(p => p.id === finalProjectId)
+      organizationId = selectedProject?.organization_id
+
+      // Si aún no tenemos org_id, buscarlo del proyecto
+      if (!organizationId) {
+        const { data: projectData } = await supabase
+          .from('projects')
+          .select('organization_id')
+          .eq('id', finalProjectId)
+          .single()
+        
+        organizationId = projectData?.organization_id
+      }
+    }
+
+    if (!organizationId) {
+      setError('No se pudo determinar la organización')
       return
     }
 
@@ -56,7 +138,7 @@ export function TaskCreateModal({ projectId, organizationId, onSuccess }: TaskCr
       const { data: existingTasks } = await supabase
         .from('tasks')
         .select('position')
-        .eq('project_id', projectId)
+        .eq('project_id', finalProjectId)
         .eq('status', status)
         .order('position', { ascending: false })
         .limit(1)
@@ -67,21 +149,21 @@ export function TaskCreateModal({ projectId, organizationId, onSuccess }: TaskCr
       // Crear tarea
       const { data: newTask, error: insertError } = await supabase
         .from('tasks')
-      .insert({
-  project_id: projectId,
-  organization_id: organizationId,
-  title: title.trim(),
-  description: description.trim() || null,
-  status,
-  priority,
-  position: newPosition,
-  created_by: user.id,
-  assignee_id: user.id  // 🆕 Auto-asignar al creador
-})
+        .insert({
+          project_id: finalProjectId,
+          organization_id: organizationId,
+          title: title.trim(),
+          description: description.trim() || null,
+          status,
+          priority,
+          position: newPosition,
+          created_by: user.id,
+          assignee_id: user.id
+        })
         .select(`
           *,
           assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
-          project:projects!tasks_project_id_fkey(name, slug, client_name)
+          project:projects!tasks_project_id_fkey(id, name, slug, client_name, color)
         `)
         .single()
 
@@ -89,8 +171,10 @@ export function TaskCreateModal({ projectId, organizationId, onSuccess }: TaskCr
 
       console.log('✅ Tarea creada:', newTask)
 
-      // Callback de éxito
-      onSuccess(newTask as TaskDetailed)
+      // Callback de éxito (si existe)
+      if (onSuccess) {
+        onSuccess(newTask as TaskDetailed)
+      }
 
       // Cerrar modal
       closeCreateTaskModal()
@@ -104,6 +188,8 @@ export function TaskCreateModal({ projectId, organizationId, onSuccess }: TaskCr
   }
 
   if (!createTaskModalOpen) return null
+
+  const showProjectSelector = !propProjectId
 
   return (
     <>
@@ -136,6 +222,24 @@ export function TaskCreateModal({ projectId, organizationId, onSuccess }: TaskCr
               <div className="p-3 rounded-lg bg-accent-danger/10 border border-accent-danger/20">
                 <p className="text-sm text-accent-danger">{error}</p>
               </div>
+            )}
+
+            {/* Selector de Proyecto (solo en modo global) */}
+            {showProjectSelector && (
+              <Select
+                label="Proyecto"
+                value={selectedProjectId}
+                onChange={(e) => setSelectedProjectId(e.target.value)}
+                disabled={isSubmitting || loadingProjects}
+                required
+              >
+                <option value="">Selecciona un proyecto</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </Select>
             )}
 
             {/* Título */}
@@ -198,7 +302,7 @@ export function TaskCreateModal({ projectId, organizationId, onSuccess }: TaskCr
               </Button>
               <Button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || (showProjectSelector && !selectedProjectId)}
                 className="flex-1"
               >
                 {isSubmitting ? (
