@@ -25,14 +25,10 @@ interface Notification {
   project_id: string | null
   is_read: boolean
   created_at: string
-  triggered_by_profile?: {
-    full_name: string
-    avatar_url: string | null
-  } | null
-  task?: TaskDetailed | null
+  triggered_by: string | null
 }
 
-const notificationIcons: Record<string, any> = {
+const notificationIcons: Record<string, React.ElementType> = {
   task_assigned: UserPlus,
   task_status_changed: CheckCircle,
   approval_requested: Clock,
@@ -63,7 +59,7 @@ export function InboxPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [filter, setFilter] = React.useState<'all' | 'unread'>('all')
 
-  // Cargar notificaciones
+  // Cargar notificaciones (query simple)
   React.useEffect(() => {
     const loadNotifications = async () => {
       if (!profile?.id) {
@@ -71,43 +67,24 @@ export function InboxPage() {
         return
       }
 
-      try {
-        const { data, error } = await supabase
-          .from('notifications')
-          .select(`
-            *,
-            triggered_by_profile:profiles!notifications_triggered_by_fkey(full_name, avatar_url),
-            task:tasks!notifications_task_id_fkey(
-              *,
-              assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
-              project:projects!tasks_project_id_fkey(id, name, slug, client_name, color)
-            )
-          `)
-          .eq('user_id', profile.id)
-          .order('created_at', { ascending: false })
-          .limit(50)
+      console.log('Inbox: Cargando notificaciones para user:', profile.id)
 
-        if (error) {
-          console.error('Error loading notifications:', error)
-          // Si falla el join, intentar sin él
-          const { data: simpleData, error: simpleError } = await supabase
-            .from('notifications')
-            .select('*')
-            .eq('user_id', profile.id)
-            .order('created_at', { ascending: false })
-            .limit(50)
-          
-          if (!simpleError) {
-            setNotifications(simpleData || [])
-          }
-        } else {
-          setNotifications(data || [])
-        }
-      } catch (err) {
-        console.error('Error:', err)
-      } finally {
-        setIsLoading(false)
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', profile.id)
+        .order('created_at', { ascending: false })
+        .limit(50)
+
+      console.log('Inbox: Resultado:', { data, error })
+
+      if (error) {
+        console.error('Error loading notifications:', error)
+      } else {
+        setNotifications(data || [])
       }
+      
+      setIsLoading(false)
     }
 
     loadNotifications()
@@ -115,9 +92,11 @@ export function InboxPage() {
 
   // Marcar como leída y abrir tarea
   const handleNotificationClick = async (notification: Notification) => {
+    console.log('Inbox: Click en notificación:', notification)
+
     // Marcar como leída si no lo está
     if (!notification.is_read) {
-      await supabase
+      const { error: updateError } = await supabase
         .from('notifications')
         .update({ 
           is_read: true, 
@@ -125,20 +104,23 @@ export function InboxPage() {
         })
         .eq('id', notification.id)
 
-      // Actualizar estado local
-      setNotifications(prev => 
-        prev.map(n => 
-          n.id === notification.id ? { ...n, is_read: true } : n
+      if (updateError) {
+        console.error('Error marcando como leída:', updateError)
+      } else {
+        // Actualizar estado local
+        setNotifications(prev => 
+          prev.map(n => 
+            n.id === notification.id ? { ...n, is_read: true } : n
+          )
         )
-      )
+      }
     }
 
-    // Si tiene tarea, abrir el drawer
-    if (notification.task) {
-      openTaskDrawer(notification.task as TaskDetailed)
-    } else if (notification.task_id) {
-      // Cargar la tarea si solo tenemos el ID
-      const { data: task } = await supabase
+    // Si tiene task_id, cargar la tarea y abrir drawer
+    if (notification.task_id) {
+      console.log('Inbox: Cargando tarea:', notification.task_id)
+      
+      const { data: task, error: taskError } = await supabase
         .from('tasks')
         .select(`
           *,
@@ -148,12 +130,31 @@ export function InboxPage() {
         .eq('id', notification.task_id)
         .single()
 
-      if (task) {
+      console.log('Inbox: Tarea cargada:', { task, taskError })
+
+      if (task && !taskError) {
+        console.log('Inbox: Abriendo TaskDrawer')
         openTaskDrawer(task as TaskDetailed)
+      } else {
+        console.error('Error cargando tarea:', taskError)
+        // Fallback: intentar sin joins
+        const { data: simpleTask } = await supabase
+          .from('tasks')
+          .select('*')
+          .eq('id', notification.task_id)
+          .single()
+        
+        if (simpleTask) {
+          console.log('Inbox: Abriendo TaskDrawer (simple)')
+          openTaskDrawer(simpleTask as TaskDetailed)
+        }
       }
     } else if (notification.project_id) {
       // Si solo tiene proyecto, navegar al proyecto
+      console.log('Inbox: Navegando a proyecto:', notification.project_id)
       navigate(`/app/projects/${notification.project_id}`)
+    } else {
+      console.log('Inbox: Notificación sin task_id ni project_id')
     }
   }
 
@@ -286,20 +287,6 @@ export function InboxPage() {
                         {formatRelativeTime(notification.created_at)}
                       </span>
                     </div>
-
-                    {/* Triggered by */}
-                    {notification.triggered_by_profile && (
-                      <div className="flex items-center gap-2 mt-3">
-                        <Avatar
-                          name={notification.triggered_by_profile.full_name}
-                          src={notification.triggered_by_profile.avatar_url}
-                          size="sm"
-                        />
-                        <span className="text-xs text-text-secondary">
-                          {notification.triggered_by_profile.full_name}
-                        </span>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
