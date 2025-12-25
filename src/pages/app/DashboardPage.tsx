@@ -173,7 +173,6 @@ export function DashboardPage() {
 
   // Handler para click en stats
   const handleStatClick = (filter: string) => {
-    // Navegar a Mis Tareas con filtro en query params
     navigate(`/app/my-tasks?filter=${filter}`)
   }
 
@@ -185,7 +184,6 @@ export function DashboardPage() {
   // Handler para click en actividad
   const handleActivityClick = async (activity: RecentActivity) => {
     if (activity.task_id) {
-      // Cargar tarea completa y abrir drawer
       const { data: task } = await supabase
         .from('tasks')
         .select(`
@@ -211,16 +209,17 @@ export function DashboardPage() {
     const diffHours = Math.floor(diffMins / 60)
     const diffDays = Math.floor(diffHours / 24)
 
-    if (diffMins < 60) return `Hace ${diffMins}m`
-    if (diffHours < 24) return `Hace ${diffHours}h`
-    return `Hace ${diffDays}d`
+    if (diffMins < 60) return `${diffMins}m`
+    if (diffHours < 24) return `${diffHours}h`
+    return `${diffDays}d`
   }
 
   // Configuración de stats
   const statsConfig = [
     { 
       key: 'active',
-      title: 'Tareas Activas', 
+      title: 'Activas', 
+      fullTitle: 'Tareas Activas',
       value: stats.activeTasks, 
       icon: Clock, 
       color: 'text-accent-primary',
@@ -229,7 +228,8 @@ export function DashboardPage() {
     },
     { 
       key: 'completed',
-      title: 'Completadas (mes)', 
+      title: 'Completadas', 
+      fullTitle: 'Completadas (mes)',
       value: stats.completedThisMonth, 
       icon: CheckCircle2, 
       color: 'text-accent-success',
@@ -239,6 +239,7 @@ export function DashboardPage() {
     { 
       key: 'blocked',
       title: 'Bloqueadas', 
+      fullTitle: 'Bloqueadas',
       value: stats.blocked, 
       icon: AlertTriangle, 
       color: 'text-accent-danger',
@@ -247,7 +248,8 @@ export function DashboardPage() {
     },
     { 
       key: 'waiting',
-      title: 'Esperando Cliente', 
+      title: 'Cliente', 
+      fullTitle: 'Esperando Cliente',
       value: stats.waitingClient, 
       icon: Users, 
       color: 'text-accent-warning',
@@ -265,19 +267,19 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* Welcome */}
       <div>
-        <h2 className="text-2xl font-bold text-text-primary">
+        <h2 className="text-xl md:text-2xl font-bold text-text-primary">
           Hola, {profile?.full_name?.split(' ')[0] || 'Usuario'} 👋
         </h2>
-        <p className="text-text-secondary">
+        <p className="text-sm md:text-base text-text-secondary">
           Aquí está el resumen de tu trabajo
         </p>
       </div>
 
-      {/* Stats Grid - Clickeable */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Stats Grid - 2x2 en móvil, 4 columnas en desktop */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         {statsConfig.map((stat) => (
           <Card 
             key={stat.key}
@@ -288,59 +290,58 @@ export function DashboardPage() {
             )}
             onClick={() => handleStatClick(stat.filter)}
           >
-            <CardContent className="p-6">
+            <CardContent className="p-3 md:p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-text-secondary">{stat.title}</p>
-                  <p className="text-3xl font-bold text-text-primary mt-1">{stat.value}</p>
+                  {/* Título corto en móvil, completo en desktop */}
+                  <p className="text-xs md:text-sm text-text-secondary">
+                    <span className="md:hidden">{stat.title}</span>
+                    <span className="hidden md:inline">{stat.fullTitle}</span>
+                  </p>
+                  <p className="text-2xl md:text-3xl font-bold text-text-primary mt-1">{stat.value}</p>
                 </div>
-                <div className={cn('p-3 rounded-lg bg-bg-tertiary', stat.color)}>
-                  <stat.icon className="w-6 h-6" />
+                <div className={cn('p-2 md:p-3 rounded-lg bg-bg-tertiary', stat.color)}>
+                  <stat.icon className="w-4 h-4 md:w-6 md:h-6" />
                 </div>
-              </div>
-              {/* Indicador de clickeable */}
-              <div className="flex items-center gap-1 mt-3 text-xs text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity">
-                <span>Ver tareas</span>
-                <ArrowRight className="w-3 h-3" />
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Main Content Grid - Stack en móvil, 3 columnas en desktop */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         {/* Recent Activity */}
         <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5" />
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+              <TrendingUp className="w-4 h-4 md:w-5 md:h-5" />
               Actividad Reciente
             </CardTitle>
           </CardHeader>
           <CardContent>
             {activities.length === 0 ? (
-              <p className="text-sm text-text-secondary text-center py-8">
+              <p className="text-sm text-text-secondary text-center py-6 md:py-8">
                 No hay actividad reciente
               </p>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-3 md:space-y-4">
                 {activities.map((activity) => (
                   <div
                     key={activity.id}
                     onClick={() => handleActivityClick(activity)}
                     className={cn(
-                      'flex items-center justify-between py-3 border-b border-bg-tertiary last:border-0',
+                      'flex items-start md:items-center justify-between py-2 md:py-3 border-b border-bg-tertiary last:border-0 gap-2',
                       activity.task_id && 'cursor-pointer hover:bg-bg-tertiary/50 -mx-2 px-2 rounded-lg transition-colors'
                     )}
                   >
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-text-primary">{activity.title}</p>
-                      <p className="text-sm text-text-secondary">{activity.message}</p>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-text-primary truncate">{activity.title}</p>
+                      <p className="text-xs md:text-sm text-text-secondary truncate">{activity.message}</p>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 shrink-0">
                       {activity.task?.status && (
-                        <Badge status={activity.task.status as any} />
+                        <Badge status={activity.task.status as any} className="hidden sm:flex" />
                       )}
                       <span className="text-xs text-text-secondary">
                         {formatRelativeTime(activity.created_at)}
@@ -355,15 +356,15 @@ export function DashboardPage() {
 
         {/* Active Projects */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FolderKanban className="w-5 h-5" />
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+              <FolderKanban className="w-4 h-4 md:w-5 md:h-5" />
               Proyectos Activos
             </CardTitle>
           </CardHeader>
           <CardContent>
             {projects.length === 0 ? (
-              <p className="text-sm text-text-secondary text-center py-8">
+              <p className="text-sm text-text-secondary text-center py-6 md:py-8">
                 No hay proyectos activos
               </p>
             ) : (
@@ -381,10 +382,10 @@ export function DashboardPage() {
                     >
                       <div className="flex items-center gap-2">
                         <div 
-                          className="w-2 h-2 rounded-full" 
+                          className="w-2 h-2 rounded-full shrink-0" 
                           style={{ backgroundColor: project.color }}
                         />
-                        <p className="text-sm font-medium text-text-primary">{project.name}</p>
+                        <p className="text-sm font-medium text-text-primary truncate">{project.name}</p>
                       </div>
                       <div className="flex items-center gap-2 mt-2">
                         <div className="flex-1 h-1.5 bg-bg-secondary rounded-full overflow-hidden">
@@ -396,7 +397,7 @@ export function DashboardPage() {
                             }}
                           />
                         </div>
-                        <span className="text-xs text-text-secondary">
+                        <span className="text-xs text-text-secondary shrink-0">
                           {project.completedTasks}/{project.totalTasks}
                         </span>
                       </div>

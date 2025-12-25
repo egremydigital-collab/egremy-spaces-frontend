@@ -8,16 +8,16 @@ import { TaskDrawer } from '@/components/tasks/TaskDrawer'
 export function Layout() {
   return (
     <div className="flex h-screen bg-bg-primary">
-      {/* Sidebar */}
+      {/* Sidebar - Fixed en móvil, static en desktop */}
       <Sidebar />
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden w-full lg:w-auto">
         {/* Header */}
         <Header />
 
-        {/* Page content */}
-        <main className="flex-1 overflow-auto p-6">
+        {/* Page content - padding responsive */}
+        <main className="flex-1 overflow-auto p-4 md:p-6">
           <Outlet />
         </main>
       </div>

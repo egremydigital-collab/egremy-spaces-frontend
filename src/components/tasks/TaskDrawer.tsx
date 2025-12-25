@@ -19,6 +19,7 @@ import {
   Copy,
   Check,
   Trash2,
+  ArrowLeft,
 } from 'lucide-react'
 
 // ============================================
@@ -71,6 +72,18 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       loadComments()
     }
   }, [selectedTask, taskDrawerOpen])
+
+  // Bloquear scroll del body cuando el drawer está abierto en móvil
+  React.useEffect(() => {
+    if (taskDrawerOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [taskDrawerOpen])
 
   // Close on Escape
   React.useEffect(() => {
@@ -444,35 +457,45 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
 
   return (
     <>
-      {/* Overlay */}
+      {/* Overlay - visible en desktop, oculto en móvil porque es fullscreen */}
       <div
-        className="fixed inset-0 bg-black/30 z-40"
+        className="fixed inset-0 bg-black/30 z-40 hidden md:block"
         onClick={closeTaskDrawer}
       />
 
-      {/* Drawer */}
+      {/* Drawer - Fullscreen en móvil, panel lateral en desktop */}
       <div
         className={cn(
-          'fixed right-0 top-0 h-full w-full max-w-lg z-50',
-          'bg-bg-primary border-l border-bg-tertiary',
-          'flex flex-col',
+          'fixed z-50 bg-bg-primary flex flex-col',
+          // Móvil: fullscreen
+          'inset-0 w-full h-full',
+          // Desktop: panel lateral derecho
+          'md:inset-auto md:right-0 md:top-0 md:h-full md:w-full md:max-w-lg md:border-l md:border-bg-tertiary',
           'animate-in slide-in-from-right duration-300'
         )}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-bg-tertiary">
+        <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-bg-tertiary shrink-0">
           <div className="flex items-center gap-3">
+            {/* Botón volver - solo móvil */}
+            <button
+              onClick={closeTaskDrawer}
+              className="md:hidden p-2 -ml-2 rounded-lg hover:bg-bg-tertiary text-text-secondary"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
             <div
               className="w-3 h-3 rounded-full"
               style={{ backgroundColor: statusConfig?.color || '#6366f1' }}
             />
-            <span className="text-sm text-text-secondary">
+            <span className="text-sm text-text-secondary truncate">
               {selectedTask.project?.name || 'Proyecto'}
             </span>
           </div>
+          {/* Botón cerrar - solo desktop */}
           <button
             onClick={closeTaskDrawer}
-            className="p-2 rounded-lg hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors"
+            className="hidden md:block p-2 rounded-lg hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -481,8 +504,8 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
           {/* Title & Description */}
-          <div className="px-6 py-5 border-b border-bg-tertiary">
-            <h2 className="text-xl font-semibold text-text-primary mb-3">
+          <div className="px-4 md:px-6 py-4 md:py-5 border-b border-bg-tertiary">
+            <h2 className="text-lg md:text-xl font-semibold text-text-primary mb-2 md:mb-3">
               {selectedTask.title}
             </h2>
             {selectedTask.description ? (
@@ -498,9 +521,9 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
 
           {/* Blocking Alert */}
           {isBlocking && (
-            <div className="mx-6 mt-4 p-3 rounded-lg bg-accent-warning/10 border border-accent-warning/20">
+            <div className="mx-4 md:mx-6 mt-4 p-3 rounded-lg bg-accent-warning/10 border border-accent-warning/20">
               <div className="flex items-center gap-2 text-accent-warning">
-                <AlertTriangle className="w-4 h-4" />
+                <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span className="text-sm font-medium">
                   {selectedTask.status === 'blocked' && 'Esta tarea está bloqueada'}
                   {selectedTask.status === 'needs_client_approval' && 'Esperando aprobación del cliente'}
@@ -519,7 +542,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
           {/* ============================================ */}
           {/* BOTÓN SOLICITAR APROBACIÓN */}
           {/* ============================================ */}
-          <div className="px-6 py-4 border-b border-bg-tertiary">
+          <div className="px-4 md:px-6 py-4 border-b border-bg-tertiary">
             <Button
               onClick={() => setShowApprovalModal(true)}
               variant="outline"
@@ -533,7 +556,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
           {/* ============================================ */}
           {/* BOTÓN ELIMINAR TAREA */}
           {/* ============================================ */}
-          <div className="px-6 py-4 border-b border-bg-tertiary">
+          <div className="px-4 md:px-6 py-4 border-b border-bg-tertiary">
             <Button
               onClick={() => setShowDeleteModal(true)}
               variant="outline"
@@ -545,10 +568,10 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
           </div>
 
           {/* Properties */}
-          <div className="px-6 py-5 space-y-4 border-b border-bg-tertiary">
+          <div className="px-4 md:px-6 py-4 md:py-5 space-y-4 border-b border-bg-tertiary">
             {/* Status */}
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-text-secondary flex items-center gap-2">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-text-secondary flex items-center gap-2 shrink-0">
                 <CheckCircle2 className="w-4 h-4" />
                 Estado
               </span>
@@ -556,7 +579,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                 value={editedStatus}
                 onChange={(e) => handleStatusChange(e.target.value as TaskStatus)}
                 disabled={isSaving}
-                className="text-sm bg-bg-secondary border border-bg-tertiary rounded-lg px-3 py-1.5 text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary/50"
+                className="text-sm bg-bg-secondary border border-bg-tertiary rounded-lg px-3 py-1.5 text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary/50 max-w-[180px]"
               >
                 {Object.entries(STATUS_LABELS).map(([value, label]) => (
                   <option key={value} value={value}>
@@ -601,7 +624,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                     src={selectedTask.assignee.avatar_url}
                     size="sm"
                   />
-                  <span className="text-sm text-text-primary">
+                  <span className="text-sm text-text-primary truncate max-w-[120px]">
                     {selectedTask.assignee.full_name}
                   </span>
                 </div>
@@ -669,7 +692,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
 
           {/* Links */}
           {(selectedTask.notion_page_url || selectedTask.google_doc_url) && (
-            <div className="px-6 py-4 border-b border-bg-tertiary">
+            <div className="px-4 md:px-6 py-4 border-b border-bg-tertiary">
               <h3 className="text-sm font-medium text-text-primary mb-3 flex items-center gap-2">
                 <LinkIcon className="w-4 h-4" />
                 Enlaces
@@ -702,7 +725,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
           )}
 
           {/* Comments */}
-          <div className="px-6 py-4">
+          <div className="px-4 md:px-6 py-4">
             <h3 className="text-sm font-medium text-text-primary mb-4 flex items-center gap-2">
               <MessageSquare className="w-4 h-4" />
               Comentarios ({comments.length})
@@ -722,8 +745,8 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                       src={comment.author?.avatar_url}
                       size="sm"
                     />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className="text-sm font-medium text-text-primary">
                           {comment.author?.full_name || 'Usuario'}
                         </span>
@@ -731,7 +754,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                           {formatRelativeTime(comment.created_at)}
                         </span>
                       </div>
-                      <p className="text-sm text-text-secondary">
+                      <p className="text-sm text-text-secondary break-words">
                         {comment.content}
                       </p>
                     </div>
@@ -766,7 +789,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-bg-tertiary bg-bg-secondary/50">
+        <div className="px-4 md:px-6 py-3 md:py-4 border-t border-bg-tertiary bg-bg-secondary/50 shrink-0">
           <div className="flex items-center justify-between text-xs text-text-secondary">
             <span>
               Creada {formatRelativeTime(selectedTask.created_at)}
@@ -791,12 +814,13 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
             <div
               className={cn(
                 'w-full max-w-md bg-bg-primary rounded-xl border border-bg-tertiary shadow-2xl',
-                'animate-in zoom-in-95 duration-200'
+                'animate-in zoom-in-95 duration-200',
+                'max-h-[90vh] overflow-y-auto'
               )}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex items-center justify-between px-6 py-4 border-b border-bg-tertiary">
-                <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
+              <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-bg-tertiary sticky top-0 bg-bg-primary">
+                <h3 className="text-base md:text-lg font-semibold text-text-primary flex items-center gap-2">
                   <Share2 className="w-5 h-5 text-accent-primary" />
                   Solicitar Aprobación
                 </h3>
@@ -808,7 +832,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                 </button>
               </div>
 
-              <div className="px-6 py-5">
+              <div className="px-4 md:px-6 py-5">
                 {!approvalLink ? (
                   <div className="space-y-4">
                     <p className="text-sm text-text-secondary">
@@ -848,11 +872,11 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-accent-success/20">
-                      <CheckCircle2 className="w-8 h-8 text-accent-success" />
+                    <div className="flex items-center justify-center w-14 h-14 md:w-16 md:h-16 mx-auto rounded-full bg-accent-success/20">
+                      <CheckCircle2 className="w-7 h-7 md:w-8 md:h-8 text-accent-success" />
                     </div>
                     <div className="text-center">
-                      <h4 className="text-lg font-semibold text-text-primary mb-1">
+                      <h4 className="text-base md:text-lg font-semibold text-text-primary mb-1">
                         ¡Link generado!
                       </h4>
                       <p className="text-sm text-text-secondary">
@@ -874,22 +898,23 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                           type="text"
                           value={approvalLink}
                           readOnly
-                          className="flex-1 px-2 py-1 text-xs bg-bg-tertiary rounded text-text-primary font-mono"
+                          className="flex-1 px-2 py-1 text-xs bg-bg-tertiary rounded text-text-primary font-mono truncate"
                         />
                         <Button
                           size="sm"
                           variant={linkCopied ? 'primary' : 'outline'}
                           onClick={handleCopyLink}
+                          className="shrink-0"
                         >
                           {linkCopied ? (
                             <>
                               <Check className="w-4 h-4 mr-1" />
-                              Copiado
+                              <span className="hidden sm:inline">Copiado</span>
                             </>
                           ) : (
                             <>
                               <Copy className="w-4 h-4 mr-1" />
-                              Copiar
+                              <span className="hidden sm:inline">Copiar</span>
                             </>
                           )}
                         </Button>
@@ -911,7 +936,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                 )}
               </div>
 
-              <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-bg-tertiary bg-bg-secondary/50 rounded-b-xl">
+              <div className="flex items-center justify-end gap-3 px-4 md:px-6 py-4 border-t border-bg-tertiary bg-bg-secondary/50 rounded-b-xl sticky bottom-0">
                 {!approvalLink ? (
                   <>
                     <Button

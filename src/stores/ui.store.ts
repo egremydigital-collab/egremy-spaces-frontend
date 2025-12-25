@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import type { TaskDetailed } from '@/types'
 
+// Detectar si es móvil al cargar
+const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
+
 interface UIState {
   // Sidebar
   sidebarOpen: boolean
@@ -18,6 +21,7 @@ interface UIState {
   
   // Actions
   toggleSidebar: () => void
+  setSidebarOpen: (open: boolean) => void
   setSidebarCollapsed: (collapsed: boolean) => void
   
   openTaskDrawer: (task: TaskDetailed) => void
@@ -34,8 +38,8 @@ interface UIState {
 }
 
 export const useUIStore = create<UIState>()((set) => ({
-  // Initial state
-  sidebarOpen: true,
+  // Initial state - sidebar cerrado en móvil, abierto en desktop
+  sidebarOpen: !isMobile,
   sidebarCollapsed: false,
   selectedTask: null,
   taskDrawerOpen: false,
@@ -46,6 +50,7 @@ export const useUIStore = create<UIState>()((set) => ({
 
   // Sidebar actions
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+  setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
 
   // Task drawer actions
