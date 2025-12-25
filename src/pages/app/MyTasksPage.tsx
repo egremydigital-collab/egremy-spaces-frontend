@@ -30,30 +30,40 @@ export function MyTasksPage() {
   React.useEffect(() => {
     let isMounted = true
 
-    const loadMyTasks = async () => {
-      if (!profile?.id) {
-        setIsLoading(false)
-        return
-      }
+ const loadMyTasks = async () => {
+  console.log('🔍 MyTasks: profile =', profile)
+  console.log('🔍 MyTasks: profile.id =', profile?.id)
+  
+  if (!profile?.id) {
+    console.log('❌ MyTasks: No hay profile.id, abortando')
+    setIsLoading(false)
+    return
+  }
 
-      setIsLoading(true)
+  setIsLoading(true)
+  console.log('📡 MyTasks: Buscando tareas para user:', profile.id)
 
-      try {
-        const { data, error } = await supabase
-          .from('tasks')
-          .select(`
-            *,
-            project:projects!tasks_project_id_fkey(id, name, slug, client_name, color)
-          `)
-          .eq('assignee_id', profile.id)
-          .not('status', 'in', '("live","optimization")')
-          .order('due_date', { ascending: true, nullsFirst: false })
+  try {
+    const { data, error } = await supabase
+      .from('tasks')
+      .select(`
+        *,
+        assignee:profiles!tasks_assignee_id_fkey(id, full_name, avatar_url, team),
+        project:projects!tasks_project_id_fkey(id, name, slug, client_name, color)
+      `)
+      .eq('assignee_id', profile.id)
+      .not('status', 'in', '("live","optimization")')
+      .order('due_date', { ascending: true, nullsFirst: false })
 
-        if (error) throw error
-        
-        if (isMounted) {
-          setTasks(data || [])
-        }
+    console.log('📦 MyTasks: Response data =', data)
+    console.log('📦 MyTasks: Response error =', error)
+
+    if (error) throw error
+
+    if (isMounted) {
+      console.log('✅ MyTasks: Cargadas', data?.length, 'tareas')
+      setTasks(data || [])
+    }
       } catch (error) {
         console.error('Error loading tasks:', error)
         if (isMounted) {
