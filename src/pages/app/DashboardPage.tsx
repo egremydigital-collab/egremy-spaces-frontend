@@ -13,7 +13,6 @@ import {
   TrendingUp,
   FolderKanban,
   Users,
-  ArrowRight,
   Loader2,
 } from 'lucide-react'
 
@@ -64,7 +63,11 @@ export function DashboardPage() {
   // Cargar datos del dashboard
   React.useEffect(() => {
     const loadDashboardData = async () => {
-      if (!profile?.id) return
+      // Si no hay profile, terminar loading de todas formas
+      if (!profile?.id) {
+        setIsLoading(false)
+        return
+      }
 
       try {
         // 1. Cargar stats de tareas asignadas al usuario
