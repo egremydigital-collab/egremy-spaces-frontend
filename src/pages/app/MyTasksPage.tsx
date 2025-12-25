@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Card, CardContent, Badge, EmptyState } from '@/components/ui'
 import { useAuthStore } from '@/stores/auth.store'
 import { useUIStore } from '@/stores/ui.store'
@@ -26,7 +26,6 @@ const FILTER_CONFIG: Record<FilterType, { label: string; description: string }> 
 }
 
 export function MyTasksPage() {
-  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const { profile } = useAuthStore()
   const { openTaskDrawer } = useUIStore()
@@ -56,7 +55,6 @@ export function MyTasksPage() {
       setIsLoading(true)
 
       try {
-        // Cargar TODAS las tareas del usuario (sin filtrar por status)
         const { data, error } = await supabase
           .from('tasks')
           .select(`
@@ -89,7 +87,7 @@ export function MyTasksPage() {
     return () => {
       isMounted = false
     }
-  }, [profile?.id, location.pathname])
+  }, [profile?.id])
 
   // Filtrar tareas según el filtro activo
   const tasks = React.useMemo(() => {
@@ -116,7 +114,6 @@ export function MyTasksPage() {
         )
       case 'all':
       default:
-        // Por defecto, excluir completadas
         return allTasks.filter(t => 
           !['live', 'optimization'].includes(t.status)
         )
@@ -173,21 +170,21 @@ export function MyTasksPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* Active Filter Banner */}
       {activeFilter !== 'all' && (
         <div className="flex items-center justify-between p-3 rounded-lg bg-accent-primary/10 border border-accent-primary/20">
-          <div>
+          <div className="min-w-0 flex-1">
             <span className="text-sm font-medium text-accent-primary">
-              Filtro activo: {FILTER_CONFIG[activeFilter].label}
+              Filtro: {FILTER_CONFIG[activeFilter].label}
             </span>
-            <p className="text-xs text-text-secondary mt-0.5">
+            <p className="text-xs text-text-secondary mt-0.5 truncate">
               {FILTER_CONFIG[activeFilter].description}
             </p>
           </div>
           <button
             onClick={clearFilter}
-            className="p-1.5 rounded-lg hover:bg-accent-primary/20 text-accent-primary transition-colors"
+            className="p-1.5 rounded-lg hover:bg-accent-primary/20 text-accent-primary transition-colors shrink-0 ml-2"
             title="Quitar filtro"
           >
             <X className="w-4 h-4" />
@@ -195,28 +192,32 @@ export function MyTasksPage() {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex items-center justify-between">
+      {/* Filters - Responsive */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        {/* Group By Buttons */}
         <div className="flex items-center gap-2">
-          <span className="text-sm text-text-secondary">Agrupar por:</span>
-          {(['status', 'project', 'due_date'] as GroupBy[]).map((option) => (
-            <button
-              key={option}
-              onClick={() => setGroupBy(option)}
-              className={cn(
-                'px-3 py-1.5 text-sm rounded-lg transition-colors',
-                groupBy === option
-                  ? 'bg-accent-primary text-white'
-                  : 'text-text-secondary hover:bg-bg-tertiary'
-              )}
-            >
-              {option === 'status' ? 'Estado' : option === 'project' ? 'Proyecto' : 'Fecha'}
-            </button>
-          ))}
+          <span className="text-xs sm:text-sm text-text-secondary whitespace-nowrap">Agrupar:</span>
+          <div className="flex items-center gap-1">
+            {(['status', 'project', 'due_date'] as GroupBy[]).map((option) => (
+              <button
+                key={option}
+                onClick={() => setGroupBy(option)}
+                className={cn(
+                  'px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded-lg transition-colors',
+                  groupBy === option
+                    ? 'bg-accent-primary text-white'
+                    : 'text-text-secondary hover:bg-bg-tertiary'
+                )}
+              >
+                {option === 'status' ? 'Estado' : option === 'project' ? 'Proyecto' : 'Fecha'}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="text-sm text-text-secondary">
-          {tasks.length} tarea{tasks.length !== 1 ? 's' : ''}
+        {/* Task Count */}
+        <div className="text-xs sm:text-sm text-text-secondary">
+          {tasks.length} {tasks.length === 1 ? 'tarea' : 'tareas'}
         </div>
       </div>
 
@@ -254,13 +255,13 @@ export function MyTasksPage() {
                   {statusConfig ? (
                     <>
                       <div
-                        className="w-2 h-2 rounded-full"
+                        className="w-2 h-2 rounded-full shrink-0"
                         style={{ backgroundColor: statusConfig.color }}
                       />
-                      <h3 className="font-medium text-text-primary">{statusConfig.label}</h3>
+                      <h3 className="font-medium text-text-primary text-sm sm:text-base">{statusConfig.label}</h3>
                     </>
                   ) : (
-                    <h3 className="font-medium text-text-primary">{groupName}</h3>
+                    <h3 className="font-medium text-text-primary text-sm sm:text-base">{groupName}</h3>
                   )}
                   <span className="text-xs text-text-secondary bg-bg-tertiary px-2 py-0.5 rounded">
                     {groupTasks.length}
@@ -307,24 +308,24 @@ function TaskRow({ task, onClick, showProject = true, showStatus = true }: TaskR
       className={cn(isBlocking && 'border-l-2 border-l-accent-warning')}
       onClick={onClick}
     >
-      <CardContent className="p-4">
-        <div className="flex items-center gap-4">
+      <CardContent className="p-3 sm:p-4">
+        <div className="flex items-start sm:items-center gap-3">
           {/* Status indicator */}
           {showStatus && (
             <div
-              className="w-2 h-2 rounded-full shrink-0"
+              className="w-2 h-2 rounded-full shrink-0 mt-1.5 sm:mt-0"
               style={{ backgroundColor: STATUS_CONFIG[task.status]?.color || '#6366f1' }}
             />
           )}
 
           {/* Content */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h4 className="text-sm font-medium text-text-primary truncate">
+            <div className="flex items-start sm:items-center gap-2 flex-wrap">
+              <h4 className="text-sm font-medium text-text-primary line-clamp-2 sm:truncate">
                 {task.title}
               </h4>
               {isBlocking && (
-                <Badge status={task.status} />
+                <Badge status={task.status} className="shrink-0" />
               )}
             </div>
 
@@ -333,20 +334,35 @@ function TaskRow({ task, onClick, showProject = true, showStatus = true }: TaskR
               {showProject && project && (
                 <Link
                   to={`/app/projects/${project.id}`}
-                  className="flex items-center gap-1 hover:text-text-primary"
+                  className="flex items-center gap-1 hover:text-text-primary truncate max-w-[150px]"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <FolderKanban className="w-3 h-3" />
-                  {project.name}
+                  <FolderKanban className="w-3 h-3 shrink-0" />
+                  <span className="truncate">{project.name}</span>
                 </Link>
+              )}
+              
+              {/* Due date - visible en móvil dentro del meta */}
+              {task.due_date && (
+                <span className={cn(
+                  'flex items-center gap-1 sm:hidden',
+                  isOverdue ? 'text-accent-danger' : 'text-text-secondary'
+                )}>
+                  {isOverdue ? (
+                    <AlertTriangle className="w-3 h-3" />
+                  ) : (
+                    <Calendar className="w-3 h-3" />
+                  )}
+                  {formatDate(task.due_date, { day: 'numeric', month: 'short' })}
+                </span>
               )}
             </div>
           </div>
 
-          {/* Due date */}
+          {/* Due date - solo desktop */}
           {task.due_date && (
             <div className={cn(
-              'flex items-center gap-1.5 text-sm shrink-0',
+              'hidden sm:flex items-center gap-1.5 text-sm shrink-0',
               isOverdue ? 'text-accent-danger' : 'text-text-secondary'
             )}>
               {isOverdue ? (

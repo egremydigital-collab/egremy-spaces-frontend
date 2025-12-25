@@ -33,27 +33,24 @@ const mainNavItems: NavItem[] = [
 export function Sidebar() {
   const location = useLocation()
   const { profile, logout } = useAuthStore()
-  const { sidebarOpen, toggleSidebar } = useUIStore()
+  const { sidebarOpen, setSidebarOpen, toggleSidebar } = useUIStore()
   const [userMenuOpen, setUserMenuOpen] = React.useState(false)
-
-  // Cerrar sidebar en móvil cuando se navega
-  React.useEffect(() => {
-    // Solo cerrar en móvil (< 1024px)
-    if (window.innerWidth < 1024) {
-      toggleSidebar()
-    }
-  }, [location.pathname])
 
   const handleLogout = async () => {
     await logout()
   }
 
+  // Cerrar sidebar en móvil al hacer click en nav
   const handleNavClick = () => {
-    // Cerrar sidebar en móvil al hacer click en nav
     if (window.innerWidth < 1024) {
-      toggleSidebar()
+      setSidebarOpen(false)
     }
   }
+
+  // Cerrar menú de usuario al cambiar de ruta
+  React.useEffect(() => {
+    setUserMenuOpen(false)
+  }, [location.pathname])
 
   return (
     <>
@@ -61,7 +58,7 @@ export function Sidebar() {
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={toggleSidebar}
+          onClick={() => setSidebarOpen(false)}
         />
       )}
 
@@ -88,7 +85,7 @@ export function Sidebar() {
           
           {/* Botón cerrar en móvil */}
           <button
-            onClick={toggleSidebar}
+            onClick={() => setSidebarOpen(false)}
             className="lg:hidden p-2 rounded-lg hover:bg-bg-tertiary text-text-secondary"
           >
             <X className="w-5 h-5" />
