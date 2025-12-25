@@ -67,16 +67,17 @@ export function TaskCreateModal({ projectId, organizationId, onSuccess }: TaskCr
       // Crear tarea
       const { data: newTask, error: insertError } = await supabase
         .from('tasks')
-        .insert({
-          project_id: projectId,
-          organization_id: organizationId,
-          title: title.trim(),
-          description: description.trim() || null,
-          status,
-          priority,
-          position: newPosition,
-          created_by: user.id
-        })
+      .insert({
+  project_id: projectId,
+  organization_id: organizationId,
+  title: title.trim(),
+  description: description.trim() || null,
+  status,
+  priority,
+  position: newPosition,
+  created_by: user.id,
+  assignee_id: user.id  // 🆕 Auto-asignar al creador
+})
         .select(`
           *,
           assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
