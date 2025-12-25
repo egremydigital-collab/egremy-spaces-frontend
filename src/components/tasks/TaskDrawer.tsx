@@ -18,6 +18,7 @@ import {
   Share2,
   Copy,
   Check,
+  Trash2,
 } from 'lucide-react'
 
 // ============================================
@@ -32,7 +33,7 @@ const N8N_WEBHOOK_SECRET = 'EgremySpaces2024SecretKey!'
 
 interface TaskDrawerProps {
   onTaskUpdated?: (task: TaskDetailed) => void
-  onRefreshTasks?: () => void // 🆕 Nueva prop para refrescar el Kanban
+  onRefreshTasks?: () => void
 }
 
 export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
@@ -57,7 +58,11 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   const [approvalLink, setApprovalLink] = React.useState<string | null>(null)
   const [linkCopied, setLinkCopied] = React.useState(false)
   const [telegramSent, setTelegramSent] = React.useState(false)
-  const [autoCloseCountdown, setAutoCloseCountdown] = React.useState<number | null>(null) // 🆕
+  const [autoCloseCountdown, setAutoCloseCountdown] = React.useState<number | null>(null)
+
+  // Estado para eliminar tarea
+  const [showDeleteModal, setShowDeleteModal] = React.useState(false)
+  const [isDeleting, setIsDeleting] = React.useState(false)
 
   // Load task details and comments
   React.useEffect(() => {
@@ -71,7 +76,9 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   React.useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (showApprovalModal) {
+        if (showDeleteModal) {
+          setShowDeleteModal(false)
+        } else if (showApprovalModal) {
           if (approvalLink) {
             handleCloseEverything()
           } else {
@@ -84,7 +91,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
     }
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [closeTaskDrawer, showApprovalModal, approvalLink])
+  }, [closeTaskDrawer, showApprovalModal, showDeleteModal, approvalLink])
 
   // Load comments
   const loadComments = async () => {
@@ -141,36 +148,66 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       console.log('✅ Estado actualizado:', newStatus)
     } catch (err) {
       console.error('Error updating status:', err)
-      setEditedStatus(selectedTask.status) // Revert
+      setEditedStatus(selectedTask.status)
     } finally {
       setIsSaving(false)
     }
   }
 
   // ============================================
-  // 🆕 Cerrar TODO (modal + drawer + refrescar)
+  // Cerrar TODO (modal + drawer + refrescar)
   // ============================================
- const handleCloseEverything = () => {
-  console.log("🚪 Cerrando todo...")
+  const handleCloseEverything = () => {
+    console.log("🚪 Cerrando todo...")
 
-  // 1. Reset modal state
-  setShowApprovalModal(false)
-  setClientName('')
-  setClientPhone('')
-  setApprovalLink(null)
-  setLinkCopied(false)
-  setTelegramSent(false)
-  setAutoCloseCountdown(null)
+    setShowApprovalModal(false)
+    setClientName('')
+    setClientPhone('')
+    setApprovalLink(null)
+    setLinkCopied(false)
+    setTelegramSent(false)
+    setAutoCloseCountdown(null)
 
-  // 2. Cerrar drawer PRIMERO
-  closeTaskDrawer()
+    closeTaskDrawer()
 
-  // 3. Refrescar DESPUÉS (cuando ya cerró)
-  if (onRefreshTasks) {
-    console.log("🔄 Refrescando Kanban...")
-    setTimeout(() => onRefreshTasks(), 0)
+    if (onRefreshTasks) {
+      console.log("🔄 Refrescando Kanban...")
+      setTimeout(() => onRefreshTasks(), 0)
+    }
   }
-}
+
+  // ============================================
+  // Eliminar Tarea
+  // ============================================
+  const handleDeleteTask = async () => {
+    if (!selectedTask) return
+    
+    setIsDeleting(true)
+    
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('id', selectedTask.id)
+      
+      if (error) throw error
+      
+      console.log('🗑️ Tarea eliminada:', selectedTask.title)
+      
+      setShowDeleteModal(false)
+      closeTaskDrawer()
+      
+      if (onRefreshTasks) {
+        setTimeout(() => onRefreshTasks(), 0)
+      }
+      
+    } catch (err: any) {
+      console.error('❌ Error eliminando tarea:', err)
+      alert(`Error al eliminar: ${err.message}`)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
 
   // ============================================
   // Solicitar Aprobación del Cliente
@@ -198,15 +235,12 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
     setTelegramSent(false)
     
     try {
-      // 1. Generar token único
       const token = `${selectedTask.id.slice(0, 8)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
       console.log('🔑 Token generado:', token)
       
-      // 2. Calcular expiración (48 horas)
       const expiresAt = new Date()
       expiresAt.setHours(expiresAt.getHours() + 48)
       
-      // Formato legible para el mensaje
       const expiresAtFormatted = expiresAt.toLocaleString('es-MX', {
         day: 'numeric',
         month: 'short',
@@ -215,7 +249,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         minute: '2-digit'
       })
 
-      // 3. Insertar en approval_tokens
       const insertData = {
         task_id: selectedTask.id,
         token: token,
@@ -238,7 +271,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
 
       console.log('✅ Token insertado en Supabase')
 
-      // 4. Actualizar estado de la tarea
       const { error: taskError } = await supabase
         .from('tasks')
         .update({ 
@@ -257,19 +289,14 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         }
       }
 
-      // 5. Generar link de aprobación
       const baseUrl = window.location.origin
       const link = `${baseUrl}/approval/${token}`
       setApprovalLink(link)
       
       console.log('🔗 Link generado:', link)
 
-      // ============================================
-      // 6. 🚀 LLAMAR AL WEBHOOK DE N8N
-      // ============================================
       console.log('📡 Enviando notificación a n8n...')
       
-      // Limpiar teléfono (solo números)
       const cleanPhone = clientPhone.replace(/\D/g, '')
       
       const webhookPayload = {
@@ -306,9 +333,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
 
       console.log('✅ Proceso completado')
 
-      // ============================================
-      // 7. 🆕 AUTO-CERRAR DESPUÉS DE 3 SEGUNDOS
-      // ============================================
       console.log('⏱️ Iniciando auto-cierre en 3 segundos...')
       
       setAutoCloseCountdown(3)
@@ -316,26 +340,24 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       setTimeout(() => setAutoCloseCountdown(2), 1000)
       setTimeout(() => setAutoCloseCountdown(1), 2000)
       
-  setTimeout(() => {
-  console.log("🚪 Auto-cerrando...")
+      setTimeout(() => {
+        console.log("🚪 Auto-cerrando...")
 
-  setShowApprovalModal(false)
-  setClientName('')
-  setClientPhone('')
-  setApprovalLink(null)
-  setLinkCopied(false)
-  setTelegramSent(false)
-  setAutoCloseCountdown(null)
+        setShowApprovalModal(false)
+        setClientName('')
+        setClientPhone('')
+        setApprovalLink(null)
+        setLinkCopied(false)
+        setTelegramSent(false)
+        setAutoCloseCountdown(null)
 
-  // 1) Cerrar drawer PRIMERO
-  closeTaskDrawer()
+        closeTaskDrawer()
 
-  // 2) Refrescar DESPUÉS
-  if (onRefreshTasks) {
-    console.log("🔄 Refrescando Kanban...")
-    setTimeout(() => onRefreshTasks(), 0)
-  }
-}, 3000)
+        if (onRefreshTasks) {
+          console.log("🔄 Refrescando Kanban...")
+          setTimeout(() => onRefreshTasks(), 0)
+        }
+      }, 3000)
 
     } catch (err: any) {
       console.error('❌ Error completo:', err)
@@ -345,7 +367,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
     }
   }
 
-  // Copiar link al portapapeles
   const handleCopyLink = async () => {
     if (!approvalLink) return
     
@@ -358,7 +379,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
     }
   }
 
-  // Resetear modal de aprobación (sin cerrar drawer)
   const resetApprovalModal = () => {
     setShowApprovalModal(false)
     setClientName('')
@@ -369,7 +389,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
     setAutoCloseCountdown(null)
   }
 
-  // Submit comment
   const handleSubmitComment = async (e: React.FormEvent) => {
     e.preventDefault()
     console.log('🚀 Iniciando envío de comentario...')
@@ -508,6 +527,20 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
             >
               <Share2 className="w-4 h-4" />
               Solicitar Aprobación del Cliente
+            </Button>
+          </div>
+
+          {/* ============================================ */}
+          {/* BOTÓN ELIMINAR TAREA */}
+          {/* ============================================ */}
+          <div className="px-6 py-4 border-b border-bg-tertiary">
+            <Button
+              onClick={() => setShowDeleteModal(true)}
+              variant="outline"
+              className="w-full justify-center gap-2 border-accent-danger/50 text-accent-danger hover:bg-accent-danger/10"
+            >
+              <Trash2 className="w-4 h-4" />
+              Eliminar Tarea
             </Button>
           </div>
 
@@ -750,13 +783,10 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       {/* ============================================ */}
       {showApprovalModal && (
         <>
-          {/* Modal Overlay */}
           <div
             className="fixed inset-0 bg-black/50 z-[60]"
             onClick={() => approvalLink ? handleCloseEverything() : resetApprovalModal()}
           />
-
-          {/* Modal Content */}
           <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
             <div
               className={cn(
@@ -765,7 +795,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
               )}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Modal Header */}
               <div className="flex items-center justify-between px-6 py-4 border-b border-bg-tertiary">
                 <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
                   <Share2 className="w-5 h-5 text-accent-primary" />
@@ -779,16 +808,12 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                 </button>
               </div>
 
-              {/* Modal Body */}
               <div className="px-6 py-5">
                 {!approvalLink ? (
-                  // Formulario para capturar datos del cliente
                   <div className="space-y-4">
                     <p className="text-sm text-text-secondary">
                       Se generará un link único para que el cliente pueda aprobar o solicitar cambios en esta tarea.
                     </p>
-
-                    {/* Nombre del cliente */}
                     <div>
                       <label className="block text-sm font-medium text-text-primary mb-1.5">
                         Nombre del cliente
@@ -802,8 +827,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                         disabled={isRequestingApproval}
                       />
                     </div>
-
-                    {/* Teléfono del cliente */}
                     <div>
                       <label className="block text-sm font-medium text-text-primary mb-1.5">
                         Teléfono (WhatsApp)
@@ -817,8 +840,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                         disabled={isRequestingApproval}
                       />
                     </div>
-
-                    {/* Info */}
                     <div className="p-3 rounded-lg bg-accent-primary/10 border border-accent-primary/20">
                       <p className="text-xs text-accent-primary">
                         ⏰ El link expirará en <strong>48 horas</strong>. El cliente podrá aprobar o solicitar cambios sin necesidad de crear una cuenta.
@@ -826,12 +847,10 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                     </div>
                   </div>
                 ) : (
-                  // Link generado - mostrar para copiar
                   <div className="space-y-4">
                     <div className="flex items-center justify-center w-16 h-16 mx-auto rounded-full bg-accent-success/20">
                       <CheckCircle2 className="w-8 h-8 text-accent-success" />
                     </div>
-
                     <div className="text-center">
                       <h4 className="text-lg font-semibold text-text-primary mb-1">
                         ¡Link generado!
@@ -840,8 +859,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                         Comparte este link con <strong>{clientName}</strong>
                       </p>
                     </div>
-
-                    {/* Telegram status */}
                     {telegramSent && (
                       <div className="p-3 rounded-lg bg-accent-success/10 border border-accent-success/20">
                         <p className="text-xs text-accent-success flex items-center gap-2">
@@ -850,8 +867,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                         </p>
                       </div>
                     )}
-
-                    {/* Link box */}
                     <div className="p-3 rounded-lg bg-bg-secondary border border-bg-tertiary">
                       <p className="text-xs text-text-secondary mb-2">Link de aprobación:</p>
                       <div className="flex items-center gap-2">
@@ -880,15 +895,11 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                         </Button>
                       </div>
                     </div>
-
-                    {/* Info */}
                     <div className="p-3 rounded-lg bg-accent-warning/10 border border-accent-warning/20">
                       <p className="text-xs text-accent-warning">
                         📱 Envía este link por <strong>WhatsApp</strong> al número: <strong>{clientPhone}</strong>
                       </p>
                     </div>
-
-                    {/* 🆕 Auto-close countdown */}
                     {autoCloseCountdown !== null && (
                       <div className="text-center">
                         <p className="text-xs text-text-secondary">
@@ -900,7 +911,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                 )}
               </div>
 
-              {/* Modal Footer */}
               <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-bg-tertiary bg-bg-secondary/50 rounded-b-xl">
                 {!approvalLink ? (
                   <>
@@ -933,6 +943,60 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                     Cerrar
                   </Button>
                 )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ============================================ */}
+      {/* MODAL: Confirmar Eliminación */}
+      {/* ============================================ */}
+      {showDeleteModal && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/50 z-[60]"
+            onClick={() => setShowDeleteModal(false)}
+          />
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <div
+              className="w-full max-w-sm bg-bg-primary rounded-xl border border-bg-tertiary shadow-2xl animate-in zoom-in-95 duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 text-center">
+                <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 rounded-full bg-accent-danger/20">
+                  <Trash2 className="w-6 h-6 text-accent-danger" />
+                </div>
+                <h3 className="text-lg font-semibold text-text-primary mb-2">
+                  ¿Eliminar tarea?
+                </h3>
+                <p className="text-sm text-text-secondary mb-6">
+                  Esta acción no se puede deshacer. La tarea "{selectedTask?.title}" será eliminada permanentemente.
+                </p>
+                <div className="flex gap-3">
+                  <Button
+                    variant="secondary"
+                    onClick={() => setShowDeleteModal(false)}
+                    disabled={isDeleting}
+                    className="flex-1"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    onClick={handleDeleteTask}
+                    disabled={isDeleting}
+                    className="flex-1 bg-accent-danger hover:bg-accent-danger/90"
+                  >
+                    {isDeleting ? (
+                      <>
+                        <Spinner size="sm" className="mr-2" />
+                        Eliminando...
+                      </>
+                    ) : (
+                      'Eliminar'
+                    )}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
