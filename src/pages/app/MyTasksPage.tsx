@@ -1,6 +1,6 @@
 import * as React from 'react'
-import { Link, useLocation } from 'react-router-dom'
-import { Card, CardContent, Badge, Button, EmptyState } from '@/components/ui'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { Card, CardContent, Badge, EmptyState } from '@/components/ui'
 import { useAuthStore } from '@/stores/auth.store'
 import { useUIStore } from '@/stores/ui.store'
 import { supabase } from '@/lib/supabase'
@@ -10,64 +10,72 @@ import {
   CheckSquare,
   Calendar,
   FolderKanban,
-  Clock,
   AlertTriangle,
+  X,
 } from 'lucide-react'
 
-type ViewMode = 'list' | 'board'
 type GroupBy = 'status' | 'project' | 'due_date'
+type FilterType = 'all' | 'active' | 'completed' | 'blocked' | 'waiting'
+
+const FILTER_CONFIG: Record<FilterType, { label: string; description: string }> = {
+  all: { label: 'Todas', description: 'Todas las tareas pendientes' },
+  active: { label: 'Activas', description: 'Tareas en progreso' },
+  completed: { label: 'Completadas', description: 'Tareas completadas este mes' },
+  blocked: { label: 'Bloqueadas', description: 'Tareas bloqueadas o con problemas' },
+  waiting: { label: 'Esperando Cliente', description: 'Tareas pendientes de aprobación' },
+}
 
 export function MyTasksPage() {
   const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { profile } = useAuthStore()
   const { openTaskDrawer } = useUIStore()
-  const [tasks, setTasks] = React.useState<TaskDetailed[]>([])
+  
+  const [allTasks, setAllTasks] = React.useState<TaskDetailed[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
-  const [viewMode, setViewMode] = React.useState<ViewMode>('list')
   const [groupBy, setGroupBy] = React.useState<GroupBy>('status')
 
-  // Cargar tareas cuando el componente se monta o la ruta cambia
+  // Obtener filtro de query params
+  const activeFilter = (searchParams.get('filter') as FilterType) || 'all'
+
+  // Limpiar filtro
+  const clearFilter = () => {
+    setSearchParams({})
+  }
+
+  // Cargar tareas cuando el componente se monta
   React.useEffect(() => {
     let isMounted = true
 
- const loadMyTasks = async () => {
-  console.log('🔍 MyTasks: profile =', profile)
-  console.log('🔍 MyTasks: profile.id =', profile?.id)
-  
-  if (!profile?.id) {
-    console.log('❌ MyTasks: No hay profile.id, abortando')
-    setIsLoading(false)
-    return
-  }
+    const loadMyTasks = async () => {
+      if (!profile?.id) {
+        setIsLoading(false)
+        return
+      }
 
-  setIsLoading(true)
-  console.log('📡 MyTasks: Buscando tareas para user:', profile.id)
+      setIsLoading(true)
 
-  try {
-    const { data, error } = await supabase
-      .from('tasks')
-      .select(`
-        *,
-        assignee:profiles!tasks_assignee_id_fkey(id, full_name, avatar_url, team),
-        project:projects!tasks_project_id_fkey(id, name, slug, client_name, color)
-      `)
-      .eq('assignee_id', profile.id)
-      .not('status', 'in', '("live","optimization")')
-      .order('due_date', { ascending: true, nullsFirst: false })
+      try {
+        // Cargar TODAS las tareas del usuario (sin filtrar por status)
+        const { data, error } = await supabase
+          .from('tasks')
+          .select(`
+            *,
+            assignee:profiles!tasks_assignee_id_fkey(id, full_name, avatar_url, team),
+            project:projects!tasks_project_id_fkey(id, name, slug, client_name, color)
+          `)
+          .eq('assignee_id', profile.id)
+          .order('due_date', { ascending: true, nullsFirst: false })
 
-    console.log('📦 MyTasks: Response data =', data)
-    console.log('📦 MyTasks: Response error =', error)
+        if (error) throw error
 
-    if (error) throw error
-
-    if (isMounted) {
-      console.log('✅ MyTasks: Cargadas', data?.length, 'tareas')
-      setTasks(data || [])
-    }
+        if (isMounted) {
+          setAllTasks(data || [])
+        }
       } catch (error) {
         console.error('Error loading tasks:', error)
         if (isMounted) {
-          setTasks([])
+          setAllTasks([])
         }
       } finally {
         if (isMounted) {
@@ -81,7 +89,39 @@ export function MyTasksPage() {
     return () => {
       isMounted = false
     }
-  }, [profile?.id, location.pathname]) // Re-ejecutar cuando cambia la ruta o el profile
+  }, [profile?.id, location.pathname])
+
+  // Filtrar tareas según el filtro activo
+  const tasks = React.useMemo(() => {
+    const now = new Date()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+
+    switch (activeFilter) {
+      case 'active':
+        return allTasks.filter(t => 
+          !['live', 'optimization', 'blocked', 'bug', 'hotfix', 'needs_client_approval'].includes(t.status)
+        )
+      case 'completed':
+        return allTasks.filter(t => 
+          ['live', 'optimization'].includes(t.status) &&
+          new Date(t.updated_at) >= startOfMonth
+        )
+      case 'blocked':
+        return allTasks.filter(t => 
+          ['blocked', 'bug', 'hotfix'].includes(t.status)
+        )
+      case 'waiting':
+        return allTasks.filter(t => 
+          t.status === 'needs_client_approval'
+        )
+      case 'all':
+      default:
+        // Por defecto, excluir completadas
+        return allTasks.filter(t => 
+          !['live', 'optimization'].includes(t.status)
+        )
+    }
+  }, [allTasks, activeFilter])
 
   // Agrupar tareas
   const groupedTasks = React.useMemo(() => {
@@ -132,18 +172,29 @@ export function MyTasksPage() {
     )
   }
 
-  if (tasks.length === 0) {
-    return (
-      <EmptyState
-        icon={<CheckSquare className="w-6 h-6 text-text-secondary" />}
-        title="No tienes tareas pendientes"
-        description="¡Excelente! Estás al día con tu trabajo"
-      />
-    )
-  }
-
   return (
     <div className="space-y-6">
+      {/* Active Filter Banner */}
+      {activeFilter !== 'all' && (
+        <div className="flex items-center justify-between p-3 rounded-lg bg-accent-primary/10 border border-accent-primary/20">
+          <div>
+            <span className="text-sm font-medium text-accent-primary">
+              Filtro activo: {FILTER_CONFIG[activeFilter].label}
+            </span>
+            <p className="text-xs text-text-secondary mt-0.5">
+              {FILTER_CONFIG[activeFilter].description}
+            </p>
+          </div>
+          <button
+            onClick={clearFilter}
+            className="p-1.5 rounded-lg hover:bg-accent-primary/20 text-accent-primary transition-colors"
+            title="Quitar filtro"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -165,51 +216,74 @@ export function MyTasksPage() {
         </div>
 
         <div className="text-sm text-text-secondary">
-          {tasks.length} tarea{tasks.length !== 1 ? 's' : ''} pendiente{tasks.length !== 1 ? 's' : ''}
+          {tasks.length} tarea{tasks.length !== 1 ? 's' : ''}
         </div>
       </div>
 
-      {/* Task Groups */}
-      <div className="space-y-6">
-        {Object.entries(groupedTasks).map(([groupName, groupTasks]) => {
-          const statusConfig = groupBy === 'status' ? STATUS_CONFIG[groupName as TaskStatus] : null
+      {/* Empty State */}
+      {tasks.length === 0 ? (
+        <EmptyState
+          icon={<CheckSquare className="w-6 h-6 text-text-secondary" />}
+          title={activeFilter === 'all' 
+            ? "No tienes tareas pendientes" 
+            : `No hay tareas ${FILTER_CONFIG[activeFilter].label.toLowerCase()}`
+          }
+          description={activeFilter === 'all'
+            ? "¡Excelente! Estás al día con tu trabajo"
+            : "Prueba con otro filtro o revisa más tarde"
+          }
+          action={activeFilter !== 'all' ? (
+            <button
+              onClick={clearFilter}
+              className="mt-4 px-4 py-2 text-sm bg-accent-primary text-white rounded-lg hover:bg-accent-primary/90 transition-colors"
+            >
+              Ver todas las tareas
+            </button>
+          ) : undefined}
+        />
+      ) : (
+        /* Task Groups */
+        <div className="space-y-6">
+          {Object.entries(groupedTasks).map(([groupName, groupTasks]) => {
+            const statusConfig = groupBy === 'status' ? STATUS_CONFIG[groupName as TaskStatus] : null
 
-          return (
-            <div key={groupName}>
-              {/* Group Header */}
-              <div className="flex items-center gap-2 mb-3">
-                {statusConfig ? (
-                  <>
-                    <div
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: statusConfig.color }}
+            return (
+              <div key={groupName}>
+                {/* Group Header */}
+                <div className="flex items-center gap-2 mb-3">
+                  {statusConfig ? (
+                    <>
+                      <div
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: statusConfig.color }}
+                      />
+                      <h3 className="font-medium text-text-primary">{statusConfig.label}</h3>
+                    </>
+                  ) : (
+                    <h3 className="font-medium text-text-primary">{groupName}</h3>
+                  )}
+                  <span className="text-xs text-text-secondary bg-bg-tertiary px-2 py-0.5 rounded">
+                    {groupTasks.length}
+                  </span>
+                </div>
+
+                {/* Tasks */}
+                <div className="space-y-2">
+                  {groupTasks.map((task) => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      onClick={() => openTaskDrawer(task)}
+                      showProject={groupBy !== 'project'}
+                      showStatus={groupBy !== 'status'}
                     />
-                    <h3 className="font-medium text-text-primary">{statusConfig.label}</h3>
-                  </>
-                ) : (
-                  <h3 className="font-medium text-text-primary">{groupName}</h3>
-                )}
-                <span className="text-xs text-text-secondary bg-bg-tertiary px-2 py-0.5 rounded">
-                  {groupTasks.length}
-                </span>
+                  ))}
+                </div>
               </div>
-
-              {/* Tasks */}
-              <div className="space-y-2">
-                {groupTasks.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    onClick={() => openTaskDrawer(task)}
-                    showProject={groupBy !== 'project'}
-                    showStatus={groupBy !== 'status'}
-                  />
-                ))}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -239,7 +313,7 @@ function TaskRow({ task, onClick, showProject = true, showStatus = true }: TaskR
           {showStatus && (
             <div
               className="w-2 h-2 rounded-full shrink-0"
-              style={{ backgroundColor: STATUS_CONFIG[task.status].color }}
+              style={{ backgroundColor: STATUS_CONFIG[task.status]?.color || '#6366f1' }}
             />
           )}
 
