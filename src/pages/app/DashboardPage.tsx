@@ -103,7 +103,7 @@ export function DashboardPage() {
             color,
             tasks:tasks(id, status)
           `)
-          .eq('is_active', true)
+          .eq('is_archived', false)
           .limit(5)
 
         if (projectsData) {
