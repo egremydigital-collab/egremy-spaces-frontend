@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { CreateProjectModal } from '@/components/modals/CreateProjectModal'
+import { CreateTaskModal } from '@/components/modals/CreateTaskModal'
 import { TaskDrawer } from '@/components/tasks/TaskDrawer'
 
 export function Layout() {
@@ -23,6 +24,7 @@ export function Layout() {
 
       {/* Modals */}
       <CreateProjectModal />
+      <CreateTaskModal />
       
       {/* Task Drawer - Global */}
       <TaskDrawer />
