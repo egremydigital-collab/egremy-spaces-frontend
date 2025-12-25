@@ -136,20 +136,28 @@ export function ProjectDetailPage() {
     }
   }, [projectId])
 
-  // Refresh on focus (backup por si Realtime falla)
-  React.useEffect(() => {
-    if (!projectId) return
+ // 🔄 POLLING BACKUP (cada 10 segundos)
+React.useEffect(() => {
+  if (!projectId) return
 
-    const onFocus = () => {
-      console.log('👁️ Focus: verificando actualizaciones...')
-      refreshTasks()
-    }
-    window.addEventListener('focus', onFocus)
+  // Polling: refresca cada 10 segundos
+  const intervalId = setInterval(() => {
+    console.log('🔄 Polling: refrescando tasks...')
+    refreshTasks()
+  }, 10000)
 
-    return () => {
-      window.removeEventListener('focus', onFocus)
-    }
-  }, [projectId])
+  // Focus: refresca cuando vuelves a la pestaña
+  const onFocus = () => {
+    console.log('👁️ Focus: refrescando tasks...')
+    refreshTasks()
+  }
+  window.addEventListener('focus', onFocus)
+
+  return () => {
+    clearInterval(intervalId)
+    window.removeEventListener('focus', onFocus)
+  }
+}, [projectId])
 
   const loadProjectAndTasks = async () => {
     try {
