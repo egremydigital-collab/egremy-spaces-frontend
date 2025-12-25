@@ -5,6 +5,7 @@ import { useUIStore } from '@/stores/ui.store'
 import { supabase } from '@/lib/supabase'
 import { TaskDrawer } from '@/components/tasks/TaskDrawer'
 import { TaskCreateModal } from '@/components/tasks/TaskCreateModal'
+import { toast } from '@/components/ui/Toast'
 import { cn, STATUS_CONFIG, KANBAN_COLUMNS } from '@/lib/utils'
 import type { Project, TaskDetailed, TaskStatus } from '@/types'
 import {
@@ -15,6 +16,7 @@ import {
   AlertTriangle,
   Wifi,
   WifiOff,
+  RefreshCw,
 } from 'lucide-react'
 import {
   DndContext,
@@ -31,14 +33,32 @@ import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
+// ============================================
+// CONSTANTS
+// ============================================
+const POLLING_INTERVAL = 15000 // 15 segundos
+const DEBOUNCE_DELAY = 300 // 300ms
+const MAX_RECONNECT_ATTEMPTS = 5
+const RECONNECT_BASE_DELAY = 2000 // 2 segundos
+
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const { openTaskDrawer, openCreateTaskModal, createTaskModalOpen, taskDrawerOpen } = useUIStore()
+  
+  // State
   const [project, setProject] = React.useState<Project | null>(null)
   const [tasks, setTasks] = React.useState<TaskDetailed[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [activeTask, setActiveTask] = React.useState<TaskDetailed | null>(null)
   const [isRealtimeConnected, setIsRealtimeConnected] = React.useState(false)
+  const [isRefreshing, setIsRefreshing] = React.useState(false)
+  const [connectionStatus, setConnectionStatus] = React.useState<'connected' | 'reconnecting' | 'offline'>('offline')
+
+  // Refs para debounce y reconexión
+  const refreshTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
+  const lastRefreshRef = React.useRef<number>(0)
+  const reconnectAttemptsRef = React.useRef(0)
+  const channelRef = React.useRef<RealtimeChannel | null>(null)
 
   // Configurar sensores para drag & drop
   const sensors = useSensors(
@@ -49,118 +69,72 @@ export function ProjectDetailPage() {
     })
   )
 
-  // Cargar proyecto y tareas inicial
-  React.useEffect(() => {
-    if (projectId) {
-      loadProjectAndTasks()
+  // ============================================
+  // DEBOUNCED REFRESH FUNCTION
+  // ============================================
+  const refreshTasksDebounced = React.useCallback(() => {
+    const now = Date.now()
+    
+    // Evitar refresh si se hizo hace menos de DEBOUNCE_DELAY
+    if (now - lastRefreshRef.current < DEBOUNCE_DELAY) {
+      console.log('⏳ Refresh debounced, skipping...')
+      return
     }
+
+    // Cancelar timeout pendiente
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current)
+    }
+
+    // Programar nuevo refresh
+    refreshTimeoutRef.current = setTimeout(async () => {
+      lastRefreshRef.current = Date.now()
+      await refreshTasks()
+    }, DEBOUNCE_DELAY)
   }, [projectId])
 
   // ============================================
-  // 🔴 SUPABASE REALTIME SUBSCRIPTION
+  // REFRESH TASKS WITH ERROR HANDLING
   // ============================================
-  React.useEffect(() => {
+  const refreshTasks = React.useCallback(async () => {
+    if (!projectId || isRefreshing) return
+
+    try {
+      setIsRefreshing(true)
+      console.log('🔄 Refreshing tasks...')
+
+      const { data: tasksData, error: tasksError } = await supabase
+        .from('tasks')
+        .select(`
+          *,
+          assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
+          project:projects!tasks_project_id_fkey(name, slug, client_name)
+        `)
+        .eq('project_id', projectId)
+        .is('parent_task_id', null)
+        .order('position', { ascending: true })
+
+      if (tasksError) throw tasksError
+
+      setTasks(tasksData || [])
+      console.log('✅ Tasks refreshed:', tasksData?.length || 0)
+    } catch (error) {
+      console.error('❌ Error refreshing tasks:', error)
+      toast.error('Error al actualizar tareas. Reintentando...')
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [projectId, isRefreshing])
+
+  // ============================================
+  // LOAD PROJECT AND TASKS
+  // ============================================
+  const loadProjectAndTasks = React.useCallback(async () => {
     if (!projectId) return
 
-    console.log('🔌 Conectando a Supabase Realtime...')
-
-    // Crear canal para este proyecto
-    const channel: RealtimeChannel = supabase
-      .channel(`project-${projectId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*', // INSERT, UPDATE, DELETE
-          schema: 'public',
-          table: 'tasks',
-          filter: `project_id=eq.${projectId}`,
-        },
-        async (payload) => {
-          console.log('📡 Realtime event:', payload.eventType, payload)
-
-          if (payload.eventType === 'INSERT') {
-            // Nueva tarea creada (por otro usuario)
-            const newTask = payload.new as any
-            
-            // Cargar la tarea completa con relaciones
-            const { data: fullTask } = await supabase
-              .from('tasks')
-              .select(`
-                *,
-                assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
-                project:projects!tasks_project_id_fkey(name, slug, client_name)
-              `)
-              .eq('id', newTask.id)
-              .single()
-
-            if (fullTask) {
-              setTasks((prev) => {
-                // Evitar duplicados
-                if (prev.some(t => t.id === fullTask.id)) return prev
-                console.log('➕ Nueva tarea agregada:', fullTask.title)
-                return [...prev, fullTask]
-              })
-            }
-          }
-
-          if (payload.eventType === 'UPDATE') {
-            const updatedTask = payload.new as any
-            console.log('🔄 Tarea actualizada:', updatedTask.title || updatedTask.id)
-            
-            setTasks((prev) =>
-              prev.map((t) =>
-                t.id === updatedTask.id
-                  ? { ...t, ...updatedTask }
-                  : t
-              )
-            )
-          }
-
-          if (payload.eventType === 'DELETE') {
-            const deletedTask = payload.old as any
-            console.log('🗑️ Tarea eliminada:', deletedTask.id)
-            
-            setTasks((prev) => prev.filter((t) => t.id !== deletedTask.id))
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log('📶 Realtime status:', status)
-        setIsRealtimeConnected(status === 'SUBSCRIBED')
-      })
-
-    // Cleanup: desuscribirse al desmontar
-    return () => {
-      console.log('🔌 Desconectando Realtime...')
-      supabase.removeChannel(channel)
-    }
-  }, [projectId])
-
- // 🔄 POLLING BACKUP (cada 10 segundos)
-React.useEffect(() => {
-  if (!projectId) return
-
-  // Polling: refresca cada 10 segundos
-  const intervalId = setInterval(() => {
-    console.log('🔄 Polling: refrescando tasks...')
-    refreshTasks()
-  }, 10000)
-
-  // Focus: refresca cuando vuelves a la pestaña
-  const onFocus = () => {
-    console.log('👁️ Focus: refrescando tasks...')
-    refreshTasks()
-  }
-  window.addEventListener('focus', onFocus)
-
-  return () => {
-    clearInterval(intervalId)
-    window.removeEventListener('focus', onFocus)
-  }
-}, [projectId])
-
-  const loadProjectAndTasks = async () => {
     try {
+      setIsLoading(true)
+
       const { data: projectData, error: projectError } = await supabase
         .from('projects')
         .select('*')
@@ -184,52 +158,215 @@ React.useEffect(() => {
       if (tasksError) throw tasksError
       setTasks(tasksData || [])
     } catch (error) {
-      console.error('Error loading project:', error)
+      console.error('❌ Error loading project:', error)
+      toast.error('Error al cargar el proyecto')
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [projectId])
 
-  // Función para refrescar tasks (backup)
-  const refreshTasks = async () => {
-    console.log("🔄 refreshTasks() called")
+  // Cargar proyecto al montar
+  React.useEffect(() => {
+    if (projectId) {
+      loadProjectAndTasks()
+    }
+  }, [projectId, loadProjectAndTasks])
 
-    const { data: tasksData, error: tasksError } = await supabase
-      .from('tasks')
-      .select(`
-        *,
-        assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
-        project:projects!tasks_project_id_fkey(name, slug, client_name)
-      `)
-      .eq('project_id', projectId)
-      .is('parent_task_id', null)
-      .order('position', { ascending: true })
+  // ============================================
+  // 🔴 SUPABASE REALTIME WITH RECONNECTION
+  // ============================================
+  React.useEffect(() => {
+    if (!projectId) return
 
-    if (tasksError) {
-      console.error("Error refreshing tasks:", tasksError)
-      return
+    const connectRealtime = () => {
+      console.log('🔌 Conectando a Supabase Realtime...')
+      setConnectionStatus('reconnecting')
+
+      try {
+        const channel = supabase
+          .channel(`project-tasks-${projectId}`)
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'tasks',
+              filter: `project_id=eq.${projectId}`,
+            },
+            async (payload) => {
+              console.log('📡 Realtime event:', payload.eventType)
+
+              try {
+                if (payload.eventType === 'INSERT') {
+                  const newTask = payload.new as any
+                  const { data: fullTask, error } = await supabase
+                    .from('tasks')
+                    .select(`
+                      *,
+                      assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
+                      project:projects!tasks_project_id_fkey(name, slug, client_name)
+                    `)
+                    .eq('id', newTask.id)
+                    .single()
+
+                  if (error) throw error
+
+                  if (fullTask) {
+                    setTasks((prev) => {
+                      if (prev.some(t => t.id === fullTask.id)) return prev
+                      console.log('➕ Nueva tarea via Realtime:', fullTask.title)
+                      return [...prev, fullTask]
+                    })
+                  }
+                }
+
+                if (payload.eventType === 'UPDATE') {
+                  const updatedTask = payload.new as any
+                  console.log('🔄 Tarea actualizada via Realtime:', updatedTask.id)
+                  setTasks((prev) =>
+                    prev.map((t) =>
+                      t.id === updatedTask.id ? { ...t, ...updatedTask } : t
+                    )
+                  )
+                }
+
+                if (payload.eventType === 'DELETE') {
+                  const deletedTask = payload.old as any
+                  console.log('🗑️ Tarea eliminada via Realtime:', deletedTask.id)
+                  setTasks((prev) => prev.filter((t) => t.id !== deletedTask.id))
+                }
+              } catch (error) {
+                console.error('❌ Error procesando evento Realtime:', error)
+                // Hacer refresh como fallback
+                refreshTasksDebounced()
+              }
+            }
+          )
+          .subscribe((status, err) => {
+            console.log('📶 Realtime status:', status)
+
+            if (status === 'SUBSCRIBED') {
+              setIsRealtimeConnected(true)
+              setConnectionStatus('connected')
+              reconnectAttemptsRef.current = 0
+              console.log('✅ Realtime conectado')
+            } else if (status === 'CLOSED') {
+              setIsRealtimeConnected(false)
+              setConnectionStatus('offline')
+              console.warn('⚠️ Realtime desconectado')
+              
+              // Intentar reconectar
+              handleReconnect()
+            } else if (status === 'CHANNEL_ERROR') {
+              setIsRealtimeConnected(false)
+              setConnectionStatus('offline')
+              console.error('❌ Error en canal Realtime:', err)
+              toast.warning('Conexión en tiempo real perdida. Usando sincronización automática.')
+              
+              // Intentar reconectar
+              handleReconnect()
+            }
+          })
+
+        channelRef.current = channel
+      } catch (error) {
+        console.error('❌ Error conectando Realtime:', error)
+        setConnectionStatus('offline')
+        handleReconnect()
+      }
     }
 
-    const next = (tasksData || []).map((t) => ({ ...t }))
-    console.log("✅ refreshTasks() got", next.length, "tasks")
+    const handleReconnect = () => {
+      if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+        console.error('❌ Máximo de intentos de reconexión alcanzado')
+        toast.error('No se pudo establecer conexión en tiempo real. Los cambios se sincronizarán cada 15 segundos.')
+        return
+      }
 
-    setTasks(next)
-  }
+      reconnectAttemptsRef.current++
+      const delay = RECONNECT_BASE_DELAY * reconnectAttemptsRef.current
 
-  // Callback cuando se actualiza una tarea desde el drawer
-  const handleTaskUpdated = (updatedTask: TaskDetailed) => {
+      console.log(`🔄 Reintentando conexión en ${delay/1000}s (intento ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`)
+      setConnectionStatus('reconnecting')
+
+      setTimeout(() => {
+        if (channelRef.current) {
+          supabase.removeChannel(channelRef.current)
+        }
+        connectRealtime()
+      }, delay)
+    }
+
+    connectRealtime()
+
+    // Cleanup
+    return () => {
+      if (channelRef.current) {
+        console.log('🔌 Desconectando Realtime...')
+        supabase.removeChannel(channelRef.current)
+      }
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current)
+      }
+    }
+  }, [projectId, refreshTasksDebounced])
+
+  // ============================================
+  // 🔄 POLLING BACKUP
+  // ============================================
+  React.useEffect(() => {
+    if (!projectId) return
+
+    // Polling como backup (menos frecuente si Realtime está conectado)
+    const interval = isRealtimeConnected ? POLLING_INTERVAL * 2 : POLLING_INTERVAL
+    
+    const intervalId = setInterval(() => {
+      if (!isRealtimeConnected) {
+        console.log('🔄 Polling backup: refrescando tasks...')
+        refreshTasksDebounced()
+      }
+    }, interval)
+
+    // Focus: refresca cuando vuelves a la pestaña
+    const onFocus = () => {
+      console.log('👁️ Focus: verificando actualizaciones...')
+      refreshTasksDebounced()
+    }
+    window.addEventListener('focus', onFocus)
+
+    // Visibility change
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('👀 Visibility: verificando actualizaciones...')
+        refreshTasksDebounced()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    return () => {
+      clearInterval(intervalId)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [projectId, isRealtimeConnected, refreshTasksDebounced])
+
+  // ============================================
+  // TASK UPDATE CALLBACK
+  // ============================================
+  const handleTaskUpdated = React.useCallback((updatedTask: TaskDetailed) => {
     setTasks((prev) =>
       prev.map((t) => (t.id === updatedTask.id ? { ...t, ...updatedTask } : t))
     )
-  }
+  }, [])
 
-  // Drag & Drop handlers
+  // ============================================
+  // DRAG & DROP HANDLERS
+  // ============================================
   const handleDragStart = (event: DragStartEvent) => {
     const { active } = event
     const task = tasks.find((t) => t.id === active.id)
     if (task) {
       setActiveTask(task)
-      console.log('🎯 Drag iniciado:', task.title)
     }
   }
 
@@ -237,50 +374,49 @@ React.useEffect(() => {
     const { active, over } = event
     setActiveTask(null)
 
-    if (!over) {
-      console.log('❌ Drop fuera de zona válida')
-      return
-    }
+    if (!over) return
 
     const taskId = active.id as string
     const newStatus = over.id as TaskStatus
     const task = tasks.find((t) => t.id === taskId)
 
-    if (!task || task.status === newStatus) {
-      console.log('❌ Sin cambio de estado')
-      return
-    }
+    if (!task || task.status === newStatus) return
 
-    console.log('🔄 Moviendo tarea:', task.title, '→', newStatus)
+    const previousStatus = task.status
 
-    // Actualizar UI inmediatamente (optimistic update)
+    // Optimistic update
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t))
     )
 
-    // Guardar en Supabase
     try {
       const { error } = await supabase
         .from('tasks')
         .update({
           status: newStatus,
-          previous_status: task.status,
+          previous_status: previousStatus,
           updated_at: new Date().toISOString(),
         })
         .eq('id', taskId)
 
       if (error) throw error
-      console.log('✅ Estado guardado en DB')
+
+      console.log('✅ Estado guardado:', task.title, '→', newStatus)
+      toast.success(`Tarea movida a ${STATUS_CONFIG[newStatus]?.label || newStatus}`)
     } catch (err) {
-      console.error('❌ Error guardando:', err)
-      // Revertir cambio en caso de error
+      console.error('❌ Error guardando estado:', err)
+      toast.error('Error al mover la tarea. Revirtiendo cambio...')
+      
+      // Revertir cambio
       setTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, status: task.status } : t))
+        prev.map((t) => (t.id === taskId ? { ...t, status: previousStatus } : t))
       )
     }
   }
 
-  // Agrupar tareas por estado
+  // ============================================
+  // COMPUTED VALUES
+  // ============================================
   const tasksByStatus = React.useMemo(() => {
     const grouped: Record<TaskStatus, TaskDetailed[]> = {} as Record<TaskStatus, TaskDetailed[]>
     
@@ -295,6 +431,9 @@ React.useEffect(() => {
     return { grouped, specialTasks }
   }, [tasks])
 
+  // ============================================
+  // RENDER
+  // ============================================
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -350,18 +489,26 @@ React.useEffect(() => {
             </div>
           </div>
           
-          {/* Realtime indicator */}
+          {/* Connection Status Indicator */}
           <div className="hidden sm:flex items-center gap-1.5 text-xs">
-            {isRealtimeConnected ? (
+            {connectionStatus === 'connected' ? (
               <>
                 <Wifi className="w-3.5 h-3.5 text-accent-success" />
                 <span className="text-accent-success">Live</span>
               </>
+            ) : connectionStatus === 'reconnecting' ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 text-accent-warning animate-spin" />
+                <span className="text-accent-warning">Reconectando...</span>
+              </>
             ) : (
               <>
                 <WifiOff className="w-3.5 h-3.5 text-text-secondary" />
-                <span className="text-text-secondary">Offline</span>
+                <span className="text-text-secondary">Sync</span>
               </>
+            )}
+            {isRefreshing && (
+              <RefreshCw className="w-3 h-3 text-accent-primary animate-spin ml-1" />
             )}
           </div>
 
@@ -377,14 +524,12 @@ React.useEffect(() => {
         <div className="px-4 md:px-6 py-3 bg-accent-warning/10 border-b border-accent-warning/20">
           <div className="flex items-center gap-2 text-sm text-accent-warning">
             <AlertTriangle className="w-4 h-4" />
-            <span>
-              {tasksByStatus.specialTasks.length} tarea(s) requieren atención
-            </span>
+            <span>{tasksByStatus.specialTasks.length} tarea(s) requieren atención</span>
           </div>
         </div>
       )}
 
-      {/* Kanban Board con Drag & Drop */}
+      {/* Kanban Board */}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -404,7 +549,6 @@ React.useEffect(() => {
           </div>
         </div>
 
-        {/* Drag Overlay - lo que se ve mientras arrastras */}
         <DragOverlay>
           {activeTask ? (
             <div className="opacity-80">
@@ -414,14 +558,14 @@ React.useEffect(() => {
         </DragOverlay>
       </DndContext>
 
-      {/* Modal de crear tarea */}
+      {/* Modals */}
       {createTaskModalOpen && project && (
         <TaskCreateModal
           projectId={project.id}
           organizationId={project.organization_id}
           onSuccess={(newTask) => {
-            console.log('🎉 Tarea creada:', newTask)
             setTasks((prev) => [...prev, newTask])
+            toast.success('Tarea creada exitosamente')
           }}
         />
       )}
@@ -429,7 +573,7 @@ React.useEffect(() => {
       {taskDrawerOpen && (
         <TaskDrawer 
           onTaskUpdated={handleTaskUpdated} 
-          onRefreshTasks={refreshTasks}
+          onRefreshTasks={refreshTasksDebounced}
         />
       )}
     </div>
@@ -437,7 +581,7 @@ React.useEffect(() => {
 }
 
 // ============================================
-// Droppable Column Component
+// DROPPABLE COLUMN
 // ============================================
 interface DroppableColumnProps {
   status: TaskStatus
@@ -446,10 +590,7 @@ interface DroppableColumnProps {
 }
 
 function DroppableColumn({ status, tasks, onTaskClick }: DroppableColumnProps) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: status,
-  })
-
+  const { setNodeRef, isOver } = useDroppable({ id: status })
   const config = STATUS_CONFIG[status]
 
   return (
@@ -460,34 +601,20 @@ function DroppableColumn({ status, tasks, onTaskClick }: DroppableColumnProps) {
         isOver && 'bg-accent-primary/10 ring-2 ring-accent-primary/50'
       )}
     >
-      {/* Column Header */}
       <div className="p-3 border-b border-bg-tertiary">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div
-              className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: config.color }}
-            />
-            <span className="font-medium text-sm text-text-primary">
-              {config.label}
-            </span>
-            <span className="text-xs text-text-secondary bg-bg-tertiary px-1.5 py-0.5 rounded">
-              {tasks.length}
-            </span>
-          </div>
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: config.color }} />
+          <span className="font-medium text-sm text-text-primary">{config.label}</span>
+          <span className="text-xs text-text-secondary bg-bg-tertiary px-1.5 py-0.5 rounded">
+            {tasks.length}
+          </span>
         </div>
       </div>
 
-      {/* Tasks */}
       <div className="flex-1 p-2 space-y-2 overflow-y-auto min-h-[100px]">
         {tasks.map((task) => (
-          <DraggableTask
-            key={task.id}
-            task={task}
-            onClick={() => onTaskClick(task)}
-          />
+          <DraggableTask key={task.id} task={task} onClick={() => onTaskClick(task)} />
         ))}
-
         {tasks.length === 0 && (
           <div className={cn(
             'text-center py-8 text-text-secondary text-sm rounded-lg border-2 border-dashed border-transparent transition-colors',
@@ -502,7 +629,7 @@ function DroppableColumn({ status, tasks, onTaskClick }: DroppableColumnProps) {
 }
 
 // ============================================
-// Draggable Task Component
+// DRAGGABLE TASK
 // ============================================
 interface DraggableTaskProps {
   task: TaskDetailed
@@ -510,19 +637,8 @@ interface DraggableTaskProps {
 }
 
 function DraggableTask({ task, onClick }: DraggableTaskProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    isDragging,
-  } = useDraggable({
-    id: task.id,
-  })
-
-  const style = {
-    transform: CSS.Translate.toString(transform),
-  }
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: task.id })
+  const style = { transform: CSS.Translate.toString(transform) }
 
   return (
     <div
@@ -530,10 +646,7 @@ function DraggableTask({ task, onClick }: DraggableTaskProps) {
       style={style}
       {...listeners}
       {...attributes}
-      className={cn(
-        'touch-none',
-        isDragging && 'opacity-50'
-      )}
+      className={cn('touch-none', isDragging && 'opacity-50')}
     >
       <TaskCard task={task} onClick={onClick} isDragging={isDragging} />
     </div>
@@ -541,7 +654,7 @@ function DraggableTask({ task, onClick }: DraggableTaskProps) {
 }
 
 // ============================================
-// Task Card Component
+// TASK CARD
 // ============================================
 interface TaskCardProps {
   task: TaskDetailed
@@ -563,26 +676,14 @@ function TaskCard({ task, onClick, isDragging }: TaskCardProps) {
       onClick={onClick}
     >
       <div className="p-3 space-y-3">
-        {/* Title */}
-        <h4 className="text-sm font-medium text-text-primary line-clamp-2">
-          {task.title}
-        </h4>
-
-        {/* Status badges for blocking states */}
-        {isBlocking && (
-          <Badge status={task.status} />
-        )}
-
-        {/* Meta info */}
+        <h4 className="text-sm font-medium text-text-primary line-clamp-2">{task.title}</h4>
+        {isBlocking && <Badge status={task.status} />}
         <div className="flex items-center justify-between text-xs text-text-secondary">
           <div className="flex items-center gap-3">
             {task.due_date && (
               <div className="flex items-center gap-1">
                 <Calendar className="w-3 h-3" />
-                {new Date(task.due_date).toLocaleDateString('es-MX', {
-                  day: 'numeric',
-                  month: 'short',
-                })}
+                {new Date(task.due_date).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
               </div>
             )}
             {task.comment_count && task.comment_count > 0 && (
@@ -592,18 +693,10 @@ function TaskCard({ task, onClick, isDragging }: TaskCardProps) {
               </div>
             )}
           </div>
-
-          {/* Assignee */}
           {task.assignee && (
-            <Avatar
-              name={task.assignee.full_name}
-              src={task.assignee.avatar_url}
-              size="sm"
-            />
+            <Avatar name={task.assignee.full_name} src={task.assignee.avatar_url} size="sm" />
           )}
         </div>
-
-        {/* Complexity indicator */}
         {task.complexity && (
           <div className="flex items-center gap-1">
             {['low', 'medium', 'high'].map((level, i) => (

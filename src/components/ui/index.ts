@@ -18,3 +18,4 @@ export { Spinner, PageLoader } from './Spinner'
 export { EmptyState } from './EmptyState'
 
 export { Select } from './Select'
+export * from './Toast'
