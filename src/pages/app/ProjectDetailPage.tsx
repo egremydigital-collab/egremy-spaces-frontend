@@ -13,6 +13,8 @@ import {
   Calendar,
   MessageSquare,
   AlertTriangle,
+  Wifi,
+  WifiOff,
 } from 'lucide-react'
 import {
   DndContext,
@@ -27,6 +29,7 @@ import {
 import { useDroppable } from '@dnd-kit/core'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -35,6 +38,7 @@ export function ProjectDetailPage() {
   const [tasks, setTasks] = React.useState<TaskDetailed[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [activeTask, setActiveTask] = React.useState<TaskDetailed | null>(null)
+  const [isRealtimeConnected, setIsRealtimeConnected] = React.useState(false)
 
   // Configurar sensores para drag & drop
   const sensors = useSensors(
@@ -45,9 +49,105 @@ export function ProjectDetailPage() {
     })
   )
 
+  // Cargar proyecto y tareas inicial
   React.useEffect(() => {
     if (projectId) {
       loadProjectAndTasks()
+    }
+  }, [projectId])
+
+  // ============================================
+  // 🔴 SUPABASE REALTIME SUBSCRIPTION
+  // ============================================
+  React.useEffect(() => {
+    if (!projectId) return
+
+    console.log('🔌 Conectando a Supabase Realtime...')
+
+    // Crear canal para este proyecto
+    const channel: RealtimeChannel = supabase
+      .channel(`project-${projectId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'tasks',
+          filter: `project_id=eq.${projectId}`,
+        },
+        async (payload) => {
+          console.log('📡 Realtime event:', payload.eventType, payload)
+
+          if (payload.eventType === 'INSERT') {
+            // Nueva tarea creada (por otro usuario)
+            const newTask = payload.new as any
+            
+            // Cargar la tarea completa con relaciones
+            const { data: fullTask } = await supabase
+              .from('tasks')
+              .select(`
+                *,
+                assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
+                project:projects!tasks_project_id_fkey(name, slug, client_name)
+              `)
+              .eq('id', newTask.id)
+              .single()
+
+            if (fullTask) {
+              setTasks((prev) => {
+                // Evitar duplicados
+                if (prev.some(t => t.id === fullTask.id)) return prev
+                console.log('➕ Nueva tarea agregada:', fullTask.title)
+                return [...prev, fullTask]
+              })
+            }
+          }
+
+          if (payload.eventType === 'UPDATE') {
+            const updatedTask = payload.new as any
+            console.log('🔄 Tarea actualizada:', updatedTask.title || updatedTask.id)
+            
+            setTasks((prev) =>
+              prev.map((t) =>
+                t.id === updatedTask.id
+                  ? { ...t, ...updatedTask }
+                  : t
+              )
+            )
+          }
+
+          if (payload.eventType === 'DELETE') {
+            const deletedTask = payload.old as any
+            console.log('🗑️ Tarea eliminada:', deletedTask.id)
+            
+            setTasks((prev) => prev.filter((t) => t.id !== deletedTask.id))
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('📶 Realtime status:', status)
+        setIsRealtimeConnected(status === 'SUBSCRIBED')
+      })
+
+    // Cleanup: desuscribirse al desmontar
+    return () => {
+      console.log('🔌 Desconectando Realtime...')
+      supabase.removeChannel(channel)
+    }
+  }, [projectId])
+
+  // Refresh on focus (backup por si Realtime falla)
+  React.useEffect(() => {
+    if (!projectId) return
+
+    const onFocus = () => {
+      console.log('👁️ Focus: verificando actualizaciones...')
+      refreshTasks()
+    }
+    window.addEventListener('focus', onFocus)
+
+    return () => {
+      window.removeEventListener('focus', onFocus)
     }
   }, [projectId])
 
@@ -82,31 +182,31 @@ export function ProjectDetailPage() {
     }
   }
 
-  // 🆕 Función para refrescar tasks con nueva referencia
-const refreshTasks = async () => {
-  console.log("🔄 refreshTasks() called")
+  // Función para refrescar tasks (backup)
+  const refreshTasks = async () => {
+    console.log("🔄 refreshTasks() called")
 
-  const { data: tasksData, error: tasksError } = await supabase
-    .from('tasks')
-    .select(`
-      *,
-      assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
-      project:projects!tasks_project_id_fkey(name, slug, client_name)
-    `)
-    .eq('project_id', projectId)
-    .is('parent_task_id', null)
-    .order('position', { ascending: true })
+    const { data: tasksData, error: tasksError } = await supabase
+      .from('tasks')
+      .select(`
+        *,
+        assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
+        project:projects!tasks_project_id_fkey(name, slug, client_name)
+      `)
+      .eq('project_id', projectId)
+      .is('parent_task_id', null)
+      .order('position', { ascending: true })
 
-  if (tasksError) {
-    console.error("Error refreshing tasks:", tasksError)
-    return
+    if (tasksError) {
+      console.error("Error refreshing tasks:", tasksError)
+      return
+    }
+
+    const next = (tasksData || []).map((t) => ({ ...t }))
+    console.log("✅ refreshTasks() got", next.length, "tasks")
+
+    setTasks(next)
   }
-
-  const next = (tasksData || []).map((t) => ({ ...t }))
-  console.log("✅ refreshTasks() got", next.length, "tasks")
-
-  setTasks(next)
-}
 
   // Callback cuando se actualiza una tarea desde el drawer
   const handleTaskUpdated = (updatedTask: TaskDetailed) => {
@@ -215,42 +315,58 @@ const refreshTasks = async () => {
   return (
     <div className="h-full flex flex-col -m-6">
       {/* Project Header */}
-      <div className="px-6 py-4 border-b border-bg-tertiary bg-bg-secondary">
-        <div className="flex items-center gap-4">
+      <div className="px-4 md:px-6 py-4 border-b border-bg-tertiary bg-bg-secondary">
+        <div className="flex items-center gap-3 md:gap-4">
           <Link
             to="/app/projects"
             className="p-2 rounded-lg hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
           </Link>
-          <div className="flex-1">
-            <div className="flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 md:gap-3">
               <div
-                className="w-8 h-8 rounded-lg"
+                className="w-6 h-6 md:w-8 md:h-8 rounded-lg shrink-0"
                 style={{ backgroundColor: project.color }}
               />
-              <div>
-                <h1 className="text-lg font-semibold text-text-primary">
+              <div className="min-w-0">
+                <h1 className="text-base md:text-lg font-semibold text-text-primary truncate">
                   {project.name}
                 </h1>
                 {project.client_name && (
-                  <p className="text-sm text-text-secondary">
+                  <p className="text-xs md:text-sm text-text-secondary truncate">
                     {project.client_name}
                   </p>
                 )}
               </div>
             </div>
           </div>
-          <Button onClick={openCreateTaskModal} size="sm">
+          
+          {/* Realtime indicator */}
+          <div className="hidden sm:flex items-center gap-1.5 text-xs">
+            {isRealtimeConnected ? (
+              <>
+                <Wifi className="w-3.5 h-3.5 text-accent-success" />
+                <span className="text-accent-success">Live</span>
+              </>
+            ) : (
+              <>
+                <WifiOff className="w-3.5 h-3.5 text-text-secondary" />
+                <span className="text-text-secondary">Offline</span>
+              </>
+            )}
+          </div>
+
+          <Button onClick={openCreateTaskModal} size="sm" className="shrink-0">
             <Plus className="w-4 h-4" />
-            Nueva Tarea
+            <span className="hidden sm:inline ml-1">Nueva Tarea</span>
           </Button>
         </div>
       </div>
 
       {/* Special Status Alert */}
       {tasksByStatus.specialTasks.length > 0 && (
-        <div className="px-6 py-3 bg-accent-warning/10 border-b border-accent-warning/20">
+        <div className="px-4 md:px-6 py-3 bg-accent-warning/10 border-b border-accent-warning/20">
           <div className="flex items-center gap-2 text-sm text-accent-warning">
             <AlertTriangle className="w-4 h-4" />
             <span>
@@ -267,8 +383,8 @@ const refreshTasks = async () => {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <div className="flex-1 overflow-x-auto p-6">
-          <div className="flex gap-4 h-full min-w-max">
+        <div className="flex-1 overflow-x-auto p-4 md:p-6">
+          <div className="flex gap-3 md:gap-4 h-full min-w-max">
             {KANBAN_COLUMNS.map((status) => (
               <DroppableColumn
                 key={status}
@@ -302,12 +418,12 @@ const refreshTasks = async () => {
         />
       )}
 
-    {taskDrawerOpen && (
-  <TaskDrawer 
-    onTaskUpdated={handleTaskUpdated} 
-    onRefreshTasks={refreshTasks}
-  />
-)}
+      {taskDrawerOpen && (
+        <TaskDrawer 
+          onTaskUpdated={handleTaskUpdated} 
+          onRefreshTasks={refreshTasks}
+        />
+      )}
     </div>
   )
 }
@@ -332,7 +448,7 @@ function DroppableColumn({ status, tasks, onTaskClick }: DroppableColumnProps) {
     <div
       ref={setNodeRef}
       className={cn(
-        'w-72 flex flex-col bg-bg-secondary/50 rounded-lg shrink-0 transition-colors',
+        'w-64 md:w-72 flex flex-col bg-bg-secondary/50 rounded-lg shrink-0 transition-colors',
         isOver && 'bg-accent-primary/10 ring-2 ring-accent-primary/50'
       )}
     >
