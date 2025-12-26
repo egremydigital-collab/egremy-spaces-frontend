@@ -3,6 +3,7 @@ import { Button, Input, Textarea, Card, Spinner } from '@/components/ui'
 import { Select } from '@/components/ui/Select'
 import { useUIStore } from '@/stores/ui.store'
 import { useAuthStore } from '@/stores/auth.store'
+import { useTaskEventsStore } from '@/stores/task-events.store'
 import { supabase } from '@/lib/supabase'
 import { KANBAN_COLUMNS, STATUS_LABELS } from '@/lib/utils'
 import type { TaskStatus, TaskDetailed } from '@/types'
@@ -23,6 +24,7 @@ interface TaskCreateModalProps {
 export function TaskCreateModal({ projectId: propProjectId, organizationId: propOrgId, onSuccess }: TaskCreateModalProps) {
   const { createTaskModalOpen, closeCreateTaskModal } = useUIStore()
   const { profile } = useAuthStore()
+  const { triggerRefresh } = useTaskEventsStore()
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -36,7 +38,8 @@ export function TaskCreateModal({ projectId: propProjectId, organizationId: prop
   const [description, setDescription] = React.useState('')
   const [status, setStatus] = React.useState<TaskStatus>('discovery')
   const [priority, setPriority] = React.useState<'low' | 'medium' | 'high' | 'urgent'>('medium')
-const [dueDate, setDueDate] = React.useState('')
+  const [dueDate, setDueDate] = React.useState('')
+
   // Cargar proyectos si no hay projectId prop
   React.useEffect(() => {
     const loadProjects = async () => {
@@ -74,6 +77,7 @@ const [dueDate, setDueDate] = React.useState('')
       setDescription('')
       setStatus('discovery')
       setPriority('medium')
+      setDueDate('')
       setError(null)
       if (!propProjectId) {
         setSelectedProjectId('')
@@ -146,6 +150,11 @@ const [dueDate, setDueDate] = React.useState('')
       const maxPosition = existingTasks?.[0]?.position || 0
       const newPosition = maxPosition + 1
 
+      // ============================================
+      // FIX TIMEZONE: Guardar fecha al mediodía UTC
+      // ============================================
+      const dueDateValue = dueDate ? `${dueDate}T12:00:00.000Z` : null
+
       // Crear tarea
       const { data: newTask, error: insertError } = await supabase
         .from('tasks')
@@ -158,8 +167,8 @@ const [dueDate, setDueDate] = React.useState('')
           priority,
           position: newPosition,
           created_by: user.id,
-         assignee_id: user.id,
-due_date: dueDate || null
+          assignee_id: user.id,
+          due_date: dueDateValue
         })
         .select(`
           *,
@@ -171,6 +180,11 @@ due_date: dueDate || null
       if (insertError) throw insertError
 
       console.log('✅ Tarea creada:', newTask)
+
+      // ============================================
+      // TRIGGER REFRESH: Notificar a todas las páginas
+      // ============================================
+      triggerRefresh()
 
       // Callback de éxito (si existe)
       if (onSuccess) {
@@ -289,7 +303,8 @@ due_date: dueDate || null
               <option value="high">Alta</option>
               <option value="urgent">Urgente</option>
             </Select>
-{/* Fecha límite */}
+
+            {/* Fecha límite */}
             <Input
               label="Fecha límite"
               type="date"

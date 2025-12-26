@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Card, CardContent, Badge, EmptyState } from '@/components/ui'
 import { useAuthStore } from '@/stores/auth.store'
 import { useUIStore } from '@/stores/ui.store'
+import { useTaskEventsStore } from '@/stores/task-events.store'
 import { supabase } from '@/lib/supabase'
 import { cn, formatDate, STATUS_CONFIG } from '@/lib/utils'
 import { CalendarView } from '@/components/tasks/CalendarView'
@@ -33,6 +34,7 @@ export function MyTasksPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { profile } = useAuthStore()
   const { openTaskDrawer } = useUIStore()
+  const { refreshTrigger } = useTaskEventsStore()
   
   const [allTasks, setAllTasks] = React.useState<TaskDetailed[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
@@ -47,52 +49,50 @@ export function MyTasksPage() {
     setSearchParams({})
   }
 
-  // Cargar tareas cuando el componente se monta
-  React.useEffect(() => {
-    let isMounted = true
-
-    const loadMyTasks = async () => {
-      if (!profile?.id) {
-        setIsLoading(false)
-        return
-      }
-
-      setIsLoading(true)
-
-      try {
-        const { data, error } = await supabase
-          .from('tasks')
-          .select(`
-            *,
-            assignee:profiles!tasks_assignee_id_fkey(id, full_name, avatar_url, team),
-            project:projects!tasks_project_id_fkey(id, name, slug, client_name, color)
-          `)
-          .eq('assignee_id', profile.id)
-          .order('due_date', { ascending: true, nullsFirst: false })
-
-        if (error) throw error
-
-        if (isMounted) {
-          setAllTasks(data || [])
-        }
-      } catch (error) {
-        console.error('Error loading tasks:', error)
-        if (isMounted) {
-          setAllTasks([])
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false)
-        }
-      }
+  // Función para cargar tareas (extraída para poder reusar)
+  const loadMyTasks = React.useCallback(async () => {
+    if (!profile?.id) {
+      setIsLoading(false)
+      return
     }
 
-    loadMyTasks()
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .select(`
+          *,
+          assignee:profiles!tasks_assignee_id_fkey(id, full_name, avatar_url, team),
+          project:projects!tasks_project_id_fkey(id, name, slug, client_name, color)
+        `)
+        .eq('assignee_id', profile.id)
+        .order('due_date', { ascending: true, nullsFirst: false })
 
-    return () => {
-      isMounted = false
+      if (error) throw error
+
+      setAllTasks(data || [])
+    } catch (error) {
+      console.error('Error loading tasks:', error)
+      setAllTasks([])
+    } finally {
+      setIsLoading(false)
     }
   }, [profile?.id])
+
+  // Cargar tareas cuando el componente se monta
+  React.useEffect(() => {
+    setIsLoading(true)
+    loadMyTasks()
+  }, [loadMyTasks])
+
+  // ============================================
+  // REFRESH AUTOMÁTICO: Escuchar cambios de tareas
+  // ============================================
+  React.useEffect(() => {
+    if (refreshTrigger > 0) {
+      console.log('🔄 MyTasksPage: Refrescando tareas...')
+      loadMyTasks()
+    }
+  }, [refreshTrigger, loadMyTasks])
 
   // Filtrar tareas según el filtro activo
   const tasks = React.useMemo(() => {
@@ -143,16 +143,19 @@ export function MyTasksPage() {
           if (!task.due_date) {
             key = 'Sin fecha'
           } else {
-            const date = new Date(task.due_date)
+            // FIX TIMEZONE: Parsear fecha sin conversión UTC
+            const [year, month, day] = task.due_date.split('T')[0].split('-').map(Number)
+            const date = new Date(year, month - 1, day)
             const today = new Date()
+            today.setHours(0, 0, 0, 0)
             const tomorrow = new Date(today)
             tomorrow.setDate(tomorrow.getDate() + 1)
             const nextWeek = new Date(today)
             nextWeek.setDate(nextWeek.getDate() + 7)
 
             if (date < today) key = 'Vencidas'
-            else if (date.toDateString() === today.toDateString()) key = 'Hoy'
-            else if (date.toDateString() === tomorrow.toDateString()) key = 'Mañana'
+            else if (date.getTime() === today.getTime()) key = 'Hoy'
+            else if (date.getTime() === tomorrow.getTime()) key = 'Mañana'
             else if (date < nextWeek) key = 'Esta semana'
             else key = 'Próximamente'
           }
@@ -347,7 +350,17 @@ interface TaskRowProps {
 
 function TaskRow({ task, onClick, showProject = true, showStatus = true }: TaskRowProps) {
   const project = task.project as any
-  const isOverdue = task.due_date && new Date(task.due_date) < new Date()
+  
+  // FIX TIMEZONE: Parsear fecha sin conversión UTC
+  const isOverdue = React.useMemo(() => {
+    if (!task.due_date) return false
+    const [year, month, day] = task.due_date.split('T')[0].split('-').map(Number)
+    const dueDate = new Date(year, month - 1, day)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return dueDate < today
+  }, [task.due_date])
+  
   const isBlocking = ['blocked', 'needs_client_approval', 'bug', 'hotfix'].includes(task.status)
 
   return (

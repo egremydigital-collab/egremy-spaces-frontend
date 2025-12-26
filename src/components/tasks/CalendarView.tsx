@@ -83,10 +83,16 @@ function getCalendarDays(year: number, month: number, tasks: TaskDetailed[]): Da
   return days
 }
 
+// ============================================
+// FIX TIMEZONE: Parsear fecha sin conversión UTC
+// ============================================
 function getTasksForDate(tasks: TaskDetailed[], date: Date): TaskDetailed[] {
   return tasks.filter((task) => {
     if (!task.due_date) return false
-    const taskDate = new Date(task.due_date)
+    // Parsear la fecha sin zona horaria (YYYY-MM-DD)
+    // Esto evita que UTC se convierta a local y mueva la fecha un día
+    const [year, month, day] = task.due_date.split('T')[0].split('-').map(Number)
+    const taskDate = new Date(year, month - 1, day)
     return isSameDay(taskDate, date)
   })
 }

@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { cn, STATUS_CONFIG, STATUS_LABELS, formatRelativeTime } from '@/lib/utils'
 import type { TaskDetailed, TaskStatus, Comment } from '@/types'
 import { logApprovalLinkSent } from '@/lib/activity-logs'
+import { useTaskEventsStore } from '@/stores/task-events.store'
 import {
   X,
   Calendar,
@@ -40,6 +41,7 @@ interface TaskDrawerProps {
 
 export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   const { selectedTask, taskDrawerOpen, closeTaskDrawer } = useUIStore()
+  const { triggerRefresh } = useTaskEventsStore()
   
   // State
   const [isSaving, setIsSaving] = React.useState(false)
@@ -49,6 +51,8 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   
   // Editable fields
   const [editedStatus, setEditedStatus] = React.useState<TaskStatus>('discovery')
+  const [editedDueDate, setEditedDueDate] = React.useState<string>('')
+  const [isSavingDueDate, setIsSavingDueDate] = React.useState(false)
 
   // ============================================
   // Estado para Solicitar Aprobación
@@ -70,6 +74,13 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   React.useEffect(() => {
     if (selectedTask && taskDrawerOpen) {
       setEditedStatus(selectedTask.status)
+      // Inicializar fecha en formato YYYY-MM-DD para el input date
+      if (selectedTask.due_date) {
+        const dateOnly = selectedTask.due_date.split('T')[0]
+        setEditedDueDate(dateOnly)
+      } else {
+        setEditedDueDate('')
+      }
       loadComments()
     }
   }, [selectedTask, taskDrawerOpen])
@@ -169,6 +180,63 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   }
 
   // ============================================
+  // Update Due Date
+  // ============================================
+  const handleDueDateChange = async (newDate: string) => {
+    console.log('📅 handleDueDateChange llamado:', newDate)
+    
+    if (!selectedTask) return
+    
+    // Si la fecha es igual, no hacer nada
+    const currentDate = selectedTask.due_date ? selectedTask.due_date.split('T')[0] : ''
+    if (newDate === currentDate) {
+      console.log('❌ No hay cambio de fecha')
+      return
+    }
+    
+    setIsSavingDueDate(true)
+    setEditedDueDate(newDate)
+    
+    try {
+      // Si newDate está vacío, guardar null
+      const dueDateValue = newDate ? `${newDate}T12:00:00.000Z` : null
+      
+      const { data, error } = await supabase
+        .from('tasks')
+        .update({ 
+          due_date: dueDateValue,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedTask.id)
+        .select()
+        .single()
+
+      if (error) throw error
+      
+      if (onTaskUpdated && data) {
+        onTaskUpdated({ ...selectedTask, ...data })
+      }
+      
+      // Refrescar el Kanban/Lista para actualizar la vista
+      if (onRefreshTasks) {
+        setTimeout(() => onRefreshTasks(), 100)
+      }
+      
+      console.log('✅ Fecha actualizada:', newDate || 'Sin fecha')
+    } catch (err) {
+      console.error('Error updating due date:', err)
+      // Revertir al valor anterior
+      if (selectedTask.due_date) {
+        setEditedDueDate(selectedTask.due_date.split('T')[0])
+      } else {
+        setEditedDueDate('')
+      }
+    } finally {
+      setIsSavingDueDate(false)
+    }
+  }
+
+  // ============================================
   // Cerrar TODO (modal + drawer + refrescar)
   // ============================================
   const handleCloseEverything = () => {
@@ -207,6 +275,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       if (error) throw error
       
       console.log('🗑️ Tarea eliminada:', selectedTask.title)
+      triggerRefresh()
       
       setShowDeleteModal(false)
       closeTaskDrawer()
@@ -649,28 +718,34 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
               )}
             </div>
 
-            {/* Due Date */}
+            {/* ============================================ */}
+            {/* Due Date - EDITABLE */}
+            {/* ============================================ */}
             <div className="flex items-center justify-between">
               <span className="text-sm text-text-secondary flex items-center gap-2">
                 <Calendar className="w-4 h-4" />
                 Fecha límite
+                {isSavingDueDate && (
+                  <Spinner size="sm" className="ml-1" />
+                )}
               </span>
-              {selectedTask.due_date ? (
-                <span className={cn(
-                  'text-sm',
-                  new Date(selectedTask.due_date) < new Date() 
-                    ? 'text-accent-danger' 
-                    : 'text-text-primary'
-                )}>
-                  {new Date(selectedTask.due_date).toLocaleDateString('es-MX', {
-                    day: 'numeric',
-                    month: 'short',
-                    year: 'numeric'
-                  })}
-                </span>
-              ) : (
-                <span className="text-sm text-text-secondary/50">Sin fecha</span>
-              )}
+              <input
+                type="date"
+                value={editedDueDate}
+                onChange={(e) => handleDueDateChange(e.target.value)}
+                disabled={isSavingDueDate}
+                className={cn(
+                  'text-sm bg-bg-secondary border border-bg-tertiary rounded-lg px-3 py-1.5 text-text-primary',
+                  'focus:outline-none focus:ring-2 focus:ring-accent-primary/50',
+                  'cursor-pointer hover:border-accent-primary/50 transition-colors',
+                  // Estilo cuando está vencida
+                  editedDueDate && new Date(editedDueDate) < new Date(new Date().toDateString())
+                    ? 'text-accent-danger border-accent-danger/50'
+                    : '',
+                  // Placeholder cuando no hay fecha
+                  !editedDueDate && 'text-text-secondary/50'
+                )}
+              />
             </div>
 
             {/* Complexity */}
