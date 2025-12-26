@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { Card, Badge, Avatar, Button, EmptyState, Spinner } from '@/components/ui'
 import { useUIStore } from '@/stores/ui.store'
 import { supabase } from '@/lib/supabase'
@@ -18,6 +18,7 @@ import {
   Wifi,
   WifiOff,
   RefreshCw,
+  Trash2,
 } from 'lucide-react'
 import {
   DndContext,
@@ -55,6 +56,9 @@ export function ProjectDetailPage() {
   const [activeTask, setActiveTask] = React.useState<TaskDetailed | null>(null)
   const [isRealtimeConnected, setIsRealtimeConnected] = React.useState(false)
   const [isRefreshing, setIsRefreshing] = React.useState(false)
+  const [showDeleteProjectModal, setShowDeleteProjectModal] = React.useState(false)
+const [isDeletingProject, setIsDeletingProject] = React.useState(false)
+const navigate = useNavigate()
   const [connectionStatus, setConnectionStatus] = React.useState<'connected' | 'reconnecting' | 'offline'>('offline')
 
   // Refs para debounce y reconexión
@@ -363,6 +367,42 @@ React.useEffect(() => {
   // ============================================
   // TASK UPDATE CALLBACK
   // ============================================
+  // ============================================
+// DELETE PROJECT
+// ============================================
+const handleDeleteProject = async () => {
+  if (!project) return
+  
+  setIsDeletingProject(true)
+  
+  try {
+    // Primero eliminar todas las tareas del proyecto
+    const { error: tasksError } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('project_id', project.id)
+    
+    if (tasksError) throw tasksError
+    
+    // Luego eliminar el proyecto
+    const { error: projectError } = await supabase
+      .from('projects')
+      .delete()
+      .eq('id', project.id)
+    
+    if (projectError) throw projectError
+    
+    console.log('🗑️ Proyecto eliminado:', project.name)
+    toast.success('Proyecto eliminado exitosamente')
+    navigate('/app/projects')
+    
+  } catch (err: any) {
+    console.error('❌ Error eliminando proyecto:', err)
+    toast.error(`Error al eliminar: ${err.message}`)
+  } finally {
+    setIsDeletingProject(false)
+  }
+}
   const handleTaskUpdated = React.useCallback((updatedTask: TaskDetailed) => {
     setTasks((prev) =>
       prev.map((t) => (t.id === updatedTask.id ? { ...t, ...updatedTask } : t))
@@ -524,6 +564,15 @@ logStatusChange(taskId, previousStatus, newStatus, task.title)
             )}
           </div>
 
+          <Button 
+  onClick={() => setShowDeleteProjectModal(true)} 
+  size="sm" 
+  variant="outline"
+  className="shrink-0 border-accent-danger/50 text-accent-danger hover:bg-accent-danger/10"
+>
+  <Trash2 className="w-4 h-4" />
+</Button>
+
           <Button onClick={openCreateTaskModal} size="sm" className="shrink-0">
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline ml-1">Nueva Tarea</span>
@@ -587,6 +636,50 @@ logStatusChange(taskId, previousStatus, newStatus, task.title)
           onTaskUpdated={handleTaskUpdated} 
           onRefreshTasks={refreshTasksDebounced}
         />
+      )}
+      {/* Modal: Confirmar Eliminación de Proyecto */}
+      {showDeleteProjectModal && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/50 z-[60]"
+            onClick={() => setShowDeleteProjectModal(false)}
+          />
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <div
+              className="w-full max-w-sm bg-bg-primary rounded-xl border border-bg-tertiary shadow-2xl animate-in zoom-in-95 duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 text-center">
+                <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 rounded-full bg-accent-danger/20">
+                  <Trash2 className="w-6 h-6 text-accent-danger" />
+                </div>
+                <h3 className="text-lg font-semibold text-text-primary mb-2">
+                  ¿Eliminar proyecto?
+                </h3>
+                <p className="text-sm text-text-secondary mb-6">
+                  Se eliminarán <strong>{tasks.length} tareas</strong> del proyecto "{project?.name}". Esta acción no se puede deshacer.
+                </p>
+                <div className="flex gap-3">
+                  <Button
+                    variant="secondary"
+                    onClick={() => setShowDeleteProjectModal(false)}
+                    disabled={isDeletingProject}
+                    className="flex-1"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    onClick={handleDeleteProject}
+                    disabled={isDeletingProject}
+                    className="flex-1 bg-accent-danger hover:bg-accent-danger/90"
+                  >
+                    {isDeletingProject ? 'Eliminando...' : 'Eliminar'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )
