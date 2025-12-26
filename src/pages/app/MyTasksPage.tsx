@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth.store'
 import { useUIStore } from '@/stores/ui.store'
 import { supabase } from '@/lib/supabase'
 import { cn, formatDate, STATUS_CONFIG } from '@/lib/utils'
+import { CalendarView } from '@/components/tasks/CalendarView'
 import type { TaskDetailed, TaskStatus } from '@/types'
 import {
   CheckSquare,
@@ -12,10 +13,13 @@ import {
   FolderKanban,
   AlertTriangle,
   X,
+  List,
+  CalendarDays,
 } from 'lucide-react'
 
 type GroupBy = 'status' | 'project' | 'due_date'
 type FilterType = 'all' | 'active' | 'completed' | 'blocked' | 'waiting'
+type ViewMode = 'list' | 'calendar'
 
 const FILTER_CONFIG: Record<FilterType, { label: string; description: string }> = {
   all: { label: 'Todas', description: 'Todas las tareas pendientes' },
@@ -33,6 +37,7 @@ export function MyTasksPage() {
   const [allTasks, setAllTasks] = React.useState<TaskDetailed[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [groupBy, setGroupBy] = React.useState<GroupBy>('status')
+  const [viewMode, setViewMode] = React.useState<ViewMode>('list')
 
   // Obtener filtro de query params
   const activeFilter = (searchParams.get('filter') as FilterType) || 'all'
@@ -192,28 +197,60 @@ export function MyTasksPage() {
         </div>
       )}
 
-      {/* Filters - Responsive */}
+      {/* Header con toggle de vista */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        {/* Group By Buttons */}
+        {/* View Toggle */}
         <div className="flex items-center gap-2">
-          <span className="text-xs sm:text-sm text-text-secondary whitespace-nowrap">Agrupar:</span>
-          <div className="flex items-center gap-1">
-            {(['status', 'project', 'due_date'] as GroupBy[]).map((option) => (
-              <button
-                key={option}
-                onClick={() => setGroupBy(option)}
-                className={cn(
-                  'px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded-lg transition-colors',
-                  groupBy === option
-                    ? 'bg-accent-primary text-white'
-                    : 'text-text-secondary hover:bg-bg-tertiary'
-                )}
-              >
-                {option === 'status' ? 'Estado' : option === 'project' ? 'Proyecto' : 'Fecha'}
-              </button>
-            ))}
+          <div className="flex items-center bg-bg-secondary rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('list')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors',
+                viewMode === 'list'
+                  ? 'bg-accent-primary text-white'
+                  : 'text-text-secondary hover:text-text-primary'
+              )}
+            >
+              <List className="w-4 h-4" />
+              <span className="hidden sm:inline">Lista</span>
+            </button>
+            <button
+              onClick={() => setViewMode('calendar')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors',
+                viewMode === 'calendar'
+                  ? 'bg-accent-primary text-white'
+                  : 'text-text-secondary hover:text-text-primary'
+              )}
+            >
+              <CalendarDays className="w-4 h-4" />
+              <span className="hidden sm:inline">Calendario</span>
+            </button>
           </div>
         </div>
+
+        {/* Group By (solo en vista lista) */}
+        {viewMode === 'list' && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs sm:text-sm text-text-secondary whitespace-nowrap">Agrupar:</span>
+            <div className="flex items-center gap-1">
+              {(['status', 'project', 'due_date'] as GroupBy[]).map((option) => (
+                <button
+                  key={option}
+                  onClick={() => setGroupBy(option)}
+                  className={cn(
+                    'px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm rounded-lg transition-colors',
+                    groupBy === option
+                      ? 'bg-accent-primary text-white'
+                      : 'text-text-secondary hover:bg-bg-tertiary'
+                  )}
+                >
+                  {option === 'status' ? 'Estado' : option === 'project' ? 'Proyecto' : 'Fecha'}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Task Count */}
         <div className="text-xs sm:text-sm text-text-secondary">
@@ -221,69 +258,80 @@ export function MyTasksPage() {
         </div>
       </div>
 
-      {/* Empty State */}
-      {tasks.length === 0 ? (
-        <EmptyState
-          icon={<CheckSquare className="w-6 h-6 text-text-secondary" />}
-          title={activeFilter === 'all' 
-            ? "No tienes tareas pendientes" 
-            : `No hay tareas ${FILTER_CONFIG[activeFilter].label.toLowerCase()}`
-          }
-          description={activeFilter === 'all'
-            ? "¡Excelente! Estás al día con tu trabajo"
-            : "Prueba con otro filtro o revisa más tarde"
-          }
-          action={activeFilter !== 'all' ? (
-            <button
-              onClick={clearFilter}
-              className="mt-4 px-4 py-2 text-sm bg-accent-primary text-white rounded-lg hover:bg-accent-primary/90 transition-colors"
-            >
-              Ver todas las tareas
-            </button>
-          ) : undefined}
+      {/* Vista Calendario */}
+      {viewMode === 'calendar' ? (
+        <CalendarView 
+          tasks={allTasks} 
+          onTaskClick={(task) => openTaskDrawer(task)} 
         />
       ) : (
-        /* Task Groups */
-        <div className="space-y-6">
-          {Object.entries(groupedTasks).map(([groupName, groupTasks]) => {
-            const statusConfig = groupBy === 'status' ? STATUS_CONFIG[groupName as TaskStatus] : null
+        /* Vista Lista */
+        <>
+          {/* Empty State */}
+          {tasks.length === 0 ? (
+            <EmptyState
+              icon={<CheckSquare className="w-6 h-6 text-text-secondary" />}
+              title={activeFilter === 'all' 
+                ? "No tienes tareas pendientes" 
+                : `No hay tareas ${FILTER_CONFIG[activeFilter].label.toLowerCase()}`
+              }
+              description={activeFilter === 'all'
+                ? "¡Excelente! Estás al día con tu trabajo"
+                : "Prueba con otro filtro o revisa más tarde"
+              }
+              action={activeFilter !== 'all' ? (
+                <button
+                  onClick={clearFilter}
+                  className="mt-4 px-4 py-2 text-sm bg-accent-primary text-white rounded-lg hover:bg-accent-primary/90 transition-colors"
+                >
+                  Ver todas las tareas
+                </button>
+              ) : undefined}
+            />
+          ) : (
+            /* Task Groups */
+            <div className="space-y-6">
+              {Object.entries(groupedTasks).map(([groupName, groupTasks]) => {
+                const statusConfig = groupBy === 'status' ? STATUS_CONFIG[groupName as TaskStatus] : null
 
-            return (
-              <div key={groupName}>
-                {/* Group Header */}
-                <div className="flex items-center gap-2 mb-3">
-                  {statusConfig ? (
-                    <>
-                      <div
-                        className="w-2 h-2 rounded-full shrink-0"
-                        style={{ backgroundColor: statusConfig.color }}
-                      />
-                      <h3 className="font-medium text-text-primary text-sm sm:text-base">{statusConfig.label}</h3>
-                    </>
-                  ) : (
-                    <h3 className="font-medium text-text-primary text-sm sm:text-base">{groupName}</h3>
-                  )}
-                  <span className="text-xs text-text-secondary bg-bg-tertiary px-2 py-0.5 rounded">
-                    {groupTasks.length}
-                  </span>
-                </div>
+                return (
+                  <div key={groupName}>
+                    {/* Group Header */}
+                    <div className="flex items-center gap-2 mb-3">
+                      {statusConfig ? (
+                        <>
+                          <div
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: statusConfig.color }}
+                          />
+                          <h3 className="font-medium text-text-primary text-sm sm:text-base">{statusConfig.label}</h3>
+                        </>
+                      ) : (
+                        <h3 className="font-medium text-text-primary text-sm sm:text-base">{groupName}</h3>
+                      )}
+                      <span className="text-xs text-text-secondary bg-bg-tertiary px-2 py-0.5 rounded">
+                        {groupTasks.length}
+                      </span>
+                    </div>
 
-                {/* Tasks */}
-                <div className="space-y-2">
-                  {groupTasks.map((task) => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      onClick={() => openTaskDrawer(task)}
-                      showProject={groupBy !== 'project'}
-                      showStatus={groupBy !== 'status'}
-                    />
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-        </div>
+                    {/* Tasks */}
+                    <div className="space-y-2">
+                      {groupTasks.map((task) => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          onClick={() => openTaskDrawer(task)}
+                          showProject={groupBy !== 'project'}
+                          showStatus={groupBy !== 'status'}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   )
