@@ -4,6 +4,7 @@ import { Avatar, EmptyState } from '@/components/ui'
 import { useAuthStore } from '@/stores/auth.store'
 import { useUIStore } from '@/stores/ui.store'
 import { supabase } from '@/lib/supabase'
+import { useTaskEventsStore } from '@/stores/task-events.store'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import type { TaskDetailed } from '@/types'
 import {
@@ -54,6 +55,7 @@ export function InboxPage() {
   const navigate = useNavigate()
   const { profile } = useAuthStore()
   const { openTaskDrawer } = useUIStore()
+  const { refreshTrigger } = useTaskEventsStore()
   
   const [notifications, setNotifications] = React.useState<Notification[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
@@ -63,6 +65,7 @@ export function InboxPage() {
   React.useEffect(() => {
     const loadNotifications = async () => {
       if (!profile?.id) {
+        
         setIsLoading(false)
         return
       }
@@ -89,6 +92,22 @@ export function InboxPage() {
 
     loadNotifications()
   }, [profile?.id])
+  // Recargar notificaciones cuando hay cambios en tareas
+  React.useEffect(() => {
+    if (refreshTrigger > 0 && profile?.id) {
+      const reloadNotifications = async () => {
+        const { data } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', profile.id)
+          .order('created_at', { ascending: false })
+          .limit(50)
+        
+        if (data) setNotifications(data)
+      }
+      reloadNotifications()
+    }
+  }, [refreshTrigger, profile?.id])
 
   // Marcar como leída y abrir tarea
   const handleNotificationClick = async (notification: Notification) => {
