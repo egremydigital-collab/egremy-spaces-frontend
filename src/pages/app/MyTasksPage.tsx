@@ -215,7 +215,7 @@ export function MyTasksPage() {
               )}
             >
               <List className="w-4 h-4" />
-              <span className="hidden sm:inline">Lista</span>
+              <span>Lista</span>
             </button>
             <button
               onClick={() => setViewMode('calendar')}
@@ -227,7 +227,7 @@ export function MyTasksPage() {
               )}
             >
               <CalendarDays className="w-4 h-4" />
-              <span className="hidden sm:inline">Calendario</span>
+              <span>Calendario</span>
             </button>
           </div>
         </div>
