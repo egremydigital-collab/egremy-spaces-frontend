@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Card, CardHeader, CardTitle, CardContent, Badge } from '@/components/ui'
 import { useAuthStore } from '@/stores/auth.store'
 import { useUIStore } from '@/stores/ui.store'
+import { useTaskEventsStore } from '@/stores/task-events.store'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import type { TaskDetailed } from '@/types'
@@ -49,6 +50,7 @@ export function DashboardPage() {
   const navigate = useNavigate()
   const { profile } = useAuthStore()
   const { openTaskDrawer } = useUIStore()
+  const { lastRefresh } = useTaskEventsStore()
 
   const [stats, setStats] = React.useState<DashboardStats>({
     activeTasks: 0,
@@ -172,7 +174,7 @@ export function DashboardPage() {
     }
 
     loadDashboardData()
-  }, [profile?.id])
+  }, [profile?.id, lastRefresh])
 
   // Handler para click en stats
   const handleStatClick = (filter: string) => {

@@ -274,15 +274,18 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       
       if (error) throw error
       
-      console.log('🗑️ Tarea eliminada:', selectedTask.title)
-      triggerRefresh()
+     console.log('🗑️ Tarea eliminada:', selectedTask.title)
       
       setShowDeleteModal(false)
       closeTaskDrawer()
       
-      if (onRefreshTasks) {
-        setTimeout(() => onRefreshTasks(), 0)
-      }
+      // Refrescar DESPUÉS de cerrar
+      setTimeout(() => {
+        triggerRefresh()
+        if (onRefreshTasks) {
+          onRefreshTasks()
+        }
+      }, 100)
       
     } catch (err: any) {
       console.error('❌ Error eliminando tarea:', err)
