@@ -4,6 +4,7 @@ import { useUIStore } from '@/stores/ui.store'
 import { supabase } from '@/lib/supabase'
 import { cn, STATUS_CONFIG, STATUS_LABELS, formatRelativeTime } from '@/lib/utils'
 import type { TaskDetailed, TaskStatus, Comment } from '@/types'
+import { logApprovalLinkSent } from '@/lib/activity-logs'
 import {
   X,
   Calendar,
@@ -344,6 +345,21 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         console.error('⚠️ Error llamando webhook n8n:', webhookError)
       }
 
+      // ============================================
+      // 📝 REGISTRAR EN ACTIVITY LOG
+      // ============================================
+      try {
+        await logApprovalLinkSent(
+          selectedTask.id,
+          token,
+          clientName.trim(),
+          'telegram',
+          expiresAt.toISOString()
+        )
+        console.log('✅ Activity log: approval_link_sent registrado')
+      } catch (logError) {
+        console.error('⚠️ Error registrando activity log:', logError)
+      }
       console.log('✅ Proceso completado')
 
       console.log('⏱️ Iniciando auto-cierre en 3 segundos...')
