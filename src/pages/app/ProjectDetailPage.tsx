@@ -8,6 +8,7 @@ import { TaskCreateModal } from '@/components/tasks/TaskCreateModal'
 import { toast } from '@/components/ui/Toast'
 import { cn, STATUS_CONFIG, KANBAN_COLUMNS } from '@/lib/utils'
 import type { Project, TaskDetailed, TaskStatus } from '@/types'
+import { useTaskEventsStore } from '@/stores/task-events.store'
 import {
   ArrowLeft,
   Plus,
@@ -43,6 +44,7 @@ const MAX_RECONNECT_ATTEMPTS = 5
 const RECONNECT_BASE_DELAY = 2000 // 2 segundos
 
 export function ProjectDetailPage() {
+  const { refreshTrigger } = useTaskEventsStore()
   const { projectId } = useParams<{ projectId: string }>()
   const { openTaskDrawer, openCreateTaskModal, createTaskModalOpen, taskDrawerOpen } = useUIStore()
   
@@ -172,6 +174,13 @@ export function ProjectDetailPage() {
       loadProjectAndTasks()
     }
   }, [projectId, loadProjectAndTasks])
+  // Escuchar eventos de refresh del store
+React.useEffect(() => {
+  if (refreshTrigger > 0) {
+    console.log('🔄 ProjectDetailPage: Refresh triggered from store')
+    refreshTasks()
+  }
+}, [refreshTrigger, refreshTasks])
 
   // ============================================
   // 🔴 SUPABASE REALTIME WITH RECONNECTION
