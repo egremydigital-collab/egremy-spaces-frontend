@@ -3,9 +3,6 @@ import { supabase } from '@/lib/supabase'
 import type { Profile } from '@/types'
 import type { User, Session } from '@supabase/supabase-js'
 
-// Default organization ID (Egremy Digital)
-const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001'
-
 interface AuthState {
   user: User | null
   profile: Profile | null
@@ -20,57 +17,39 @@ interface AuthState {
   register: (email: string, password: string, fullName: string) => Promise<{ error: Error | null }>
   logout: () => Promise<void>
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: Error | null }>
-  ensureProfile: () => Promise<Profile | null>
+  refreshProfile: () => Promise<Profile | null>
 }
 
-// Helper to fetch or create profile
-async function fetchOrCreateProfile(userId: string, email: string, fullName?: string): Promise<Profile | null> {
-  try {
-    // Intentar obtener perfil existente
-    const { data: existingProfile, error: fetchError } = await supabase
+// Helper to fetch profile with retry (trigger puede tardar)
+async function fetchProfileWithRetry(userId: string, retries = 3): Promise<Profile | null> {
+  for (let i = 0; i < retries; i++) {
+    const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single()
 
-    if (existingProfile) {
-      console.log('✅ Profile found:', existingProfile.full_name)
-      return existingProfile
+    if (data) {
+      console.log('✅ Profile found:', data.full_name)
+      return data
     }
 
-    // Si no existe y no es error de "not found", hay un problema
-    if (fetchError && fetchError.code !== 'PGRST116') {
-      console.error('Error fetching profile:', fetchError)
+    // Si es error "not found" y quedan reintentos, esperar y reintentar
+    if (error?.code === 'PGRST116' && i < retries - 1) {
+      console.log(`⏳ Profile not ready, retrying... (${i + 1}/${retries})`)
+      await new Promise(r => setTimeout(r, 500))
+      continue
+    }
+
+    // Otro tipo de error
+    if (error && error.code !== 'PGRST116') {
+      console.error('❌ Error fetching profile:', error)
       return null
     }
-
-    // Crear perfil si no existe (fallback si trigger no funcionó)
-    console.log('⚠️ Profile not found, creating fallback profile...')
-    
-    const { data: newProfile, error: createError } = await supabase
-      .from('profiles')
-      .insert({
-        id: userId,
-        organization_id: DEFAULT_ORG_ID,
-        email,
-        full_name: fullName || email.split('@')[0],
-        role: 'member',
-        team: 'egremy_digital',
-      })
-      .select()
-      .single()
-
-    if (createError) {
-      console.error('Error creating fallback profile:', createError)
-      return null
-    }
-
-    console.log('✅ Profile created:', newProfile.full_name)
-    return newProfile
-  } catch (err) {
-    console.error('❌ fetchOrCreateProfile error:', err)
-    return null
   }
+
+  console.warn('⚠️ Profile not found after retries')
+  return null
 }
 
 export const useAuthStore = create<AuthState>()((set, get) => ({
@@ -84,7 +63,6 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   initialize: async () => {
     console.log('🔄 Initializing auth...')
     try {
-      // Obtener sesión actual de Supabase
       const { data: { session }, error } = await supabase.auth.getSession()
       
       if (error) {
@@ -94,12 +72,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       if (session?.user) {
         console.log('✅ Session found for:', session.user.email)
         
-        // Obtener o crear perfil del usuario
-        const profile = await fetchOrCreateProfile(
-          session.user.id,
-          session.user.email || '',
-          session.user.user_metadata?.full_name
-        )
+        const profile = await fetchProfileWithRetry(session.user.id)
 
         set({
           user: session.user,
@@ -122,17 +95,13 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       }
 
       // Escuchar cambios de auth
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      supabase.auth.onAuthStateChange(async (event, session) => {
         console.log('🔔 Auth event:', event)
         
         if (event === 'SIGNED_IN' && session?.user) {
           console.log('✅ User signed in:', session.user.email)
           
-          const profile = await fetchOrCreateProfile(
-            session.user.id,
-            session.user.email || '',
-            session.user.user_metadata?.full_name
-          )
+          const profile = await fetchProfileWithRetry(session.user.id)
 
           set({
             user: session.user,
@@ -157,9 +126,6 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
           })
         }
       })
-
-      // Cleanup no necesario aquí, pero buena práctica
-      return () => subscription.unsubscribe()
       
     } catch (error) {
       console.error('❌ Auth initialization error:', error)
@@ -171,28 +137,22 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     }
   },
 
-  // Método para reintentar cargar perfil
-  ensureProfile: async () => {
-    const { user, profile } = get()
-    
-    if (profile) return profile
+  // Método para recargar perfil manualmente
+  refreshProfile: async () => {
+    const { user } = get()
     if (!user) return null
 
     set({ isLoading: true })
     
-    const newProfile = await fetchOrCreateProfile(
-      user.id,
-      user.email || '',
-      user.user_metadata?.full_name
-    )
+    const profile = await fetchProfileWithRetry(user.id)
 
     set({
-      profile: newProfile,
+      profile,
       isLoading: false,
-      profileError: newProfile ? null : 'No se pudo crear el perfil',
+      profileError: profile ? null : 'No se pudo cargar el perfil',
     })
 
-    return newProfile
+    return profile
   },
 
   login: async (email, password) => {
@@ -213,7 +173,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       console.log('✅ Login successful')
 
       if (data.user) {
-        const profile = await fetchOrCreateProfile(data.user.id, email)
+        const profile = await fetchProfileWithRetry(data.user.id)
 
         set({
           user: data.user,
@@ -254,18 +214,18 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       console.log('✅ Register successful')
 
       if (data.user) {
-        // Esperar un momento para que el trigger cree el perfil
-        await new Promise((resolve) => setTimeout(resolve, 1500))
+        // Esperar para que el trigger cree el perfil
+        await new Promise((resolve) => setTimeout(resolve, 800))
         
-        // Obtener o crear perfil (fallback si trigger no funcionó)
-        const profile = await fetchOrCreateProfile(data.user.id, email, fullName)
+        // Obtener perfil con reintentos
+        const profile = await fetchProfileWithRetry(data.user.id, 5)
 
         set({
           user: data.user,
           session: data.session,
           profile,
           isLoading: false,
-          profileError: profile ? null : 'No se pudo crear el perfil',
+          profileError: profile ? null : 'No se pudo cargar el perfil',
         })
       }
 
