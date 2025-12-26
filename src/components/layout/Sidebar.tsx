@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth.store'
 import { useUIStore } from '@/stores/ui.store'
+import { supabase } from '@/lib/supabase'
 import { Avatar } from '@/components/ui'
 import {
   LayoutDashboard,
@@ -20,12 +21,12 @@ interface NavItem {
   title: string
   href: string
   icon: React.ElementType
-  badge?: number
+  badgeKey?: string // Key para identificar qué badge mostrar
 }
 
 const mainNavItems: NavItem[] = [
   { title: 'Dashboard', href: '/app/dashboard', icon: LayoutDashboard },
-  { title: 'Inbox', href: '/app/inbox', icon: Inbox, badge: 3 },
+  { title: 'Inbox', href: '/app/inbox', icon: Inbox, badgeKey: 'inbox' },
   { title: 'Mis Tareas', href: '/app/my-tasks', icon: CheckSquare },
   { title: 'Proyectos', href: '/app/projects', icon: FolderKanban },
 ]
@@ -33,8 +34,58 @@ const mainNavItems: NavItem[] = [
 export function Sidebar() {
   const location = useLocation()
   const { profile, logout } = useAuthStore()
-  const { sidebarOpen, setSidebarOpen, toggleSidebar } = useUIStore()
+  const { sidebarOpen, setSidebarOpen } = useUIStore()
   const [userMenuOpen, setUserMenuOpen] = React.useState(false)
+  const [unreadCount, setUnreadCount] = React.useState(0)
+
+  // Cargar conteo de notificaciones no leídas
+  const loadUnreadCount = React.useCallback(async () => {
+    if (!profile?.id) return
+
+    try {
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', profile.id)
+        .eq('is_read', false)
+
+      if (error) throw error
+      setUnreadCount(count || 0)
+    } catch (err) {
+      console.error('Error loading unread count:', err)
+    }
+  }, [profile?.id])
+
+  // Cargar al montar y cuando cambie el perfil
+  React.useEffect(() => {
+    loadUnreadCount()
+  }, [loadUnreadCount])
+
+  // Suscribirse a cambios en notificaciones
+  React.useEffect(() => {
+    if (!profile?.id) return
+
+    const channel = supabase
+      .channel('notifications-count')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${profile.id}`,
+        },
+        () => {
+          // Recargar conteo cuando hay cambios
+          loadUnreadCount()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [profile?.id, loadUnreadCount])
 
   const handleLogout = async () => {
     await logout()
@@ -68,9 +119,7 @@ export function Sidebar() {
           'fixed lg:static inset-y-0 left-0 z-50',
           'w-64 h-screen bg-bg-secondary border-r border-bg-tertiary flex flex-col',
           'transform transition-transform duration-300 ease-in-out',
-          // En móvil: oculto por defecto, visible cuando sidebarOpen
           sidebarOpen ? 'translate-x-0' : '-translate-x-full',
-          // En desktop: siempre visible
           'lg:translate-x-0'
         )}
       >
@@ -98,6 +147,9 @@ export function Sidebar() {
             const isActive = location.pathname === item.href || 
               (item.href === '/app/projects' && location.pathname.startsWith('/app/projects'))
             
+            // Determinar el badge a mostrar
+            const badgeValue = item.badgeKey === 'inbox' ? unreadCount : 0
+            
             return (
               <NavLink
                 key={item.href}
@@ -112,9 +164,9 @@ export function Sidebar() {
               >
                 <item.icon className="w-5 h-5" />
                 <span className="flex-1">{item.title}</span>
-                {item.badge && (
+                {badgeValue > 0 && (
                   <span className="px-2 py-0.5 text-xs rounded-full bg-accent-primary text-white">
-                    {item.badge}
+                    {badgeValue > 99 ? '99+' : badgeValue}
                   </span>
                 )}
               </NavLink>
