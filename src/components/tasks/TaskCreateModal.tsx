@@ -36,7 +36,7 @@ export function TaskCreateModal({ projectId: propProjectId, organizationId: prop
   const [description, setDescription] = React.useState('')
   const [status, setStatus] = React.useState<TaskStatus>('discovery')
   const [priority, setPriority] = React.useState<'low' | 'medium' | 'high' | 'urgent'>('medium')
-
+const [dueDate, setDueDate] = React.useState('')
   // Cargar proyectos si no hay projectId prop
   React.useEffect(() => {
     const loadProjects = async () => {
@@ -158,7 +158,8 @@ export function TaskCreateModal({ projectId: propProjectId, organizationId: prop
           priority,
           position: newPosition,
           created_by: user.id,
-          assignee_id: user.id
+         assignee_id: user.id,
+due_date: dueDate || null
         })
         .select(`
           *,
@@ -288,6 +289,14 @@ export function TaskCreateModal({ projectId: propProjectId, organizationId: prop
               <option value="high">Alta</option>
               <option value="urgent">Urgente</option>
             </Select>
+{/* Fecha límite */}
+            <Input
+              label="Fecha límite"
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              disabled={isSubmitting}
+            />
 
             {/* Botones */}
             <div className="flex gap-3 pt-4">
