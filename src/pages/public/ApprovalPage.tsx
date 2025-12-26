@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { Button, Card, Spinner, Badge } from '@/components/ui'
 import { cn } from '@/lib/utils'
+import { logClientApproved, logClientRequestedChanges } from '@/lib/activity-logs'
 import {
   CheckCircle2,
   AlertTriangle,
@@ -299,6 +300,32 @@ export function ApprovalPage() {
         // No es crítico, continuar - la decisión ya se guardó
       }
 
+      // ============================================
+      // 6. 📝 REGISTRAR EN ACTIVITY LOG
+      // ============================================
+      console.log('📝 Registrando en activity log...')
+      try {
+        if (approvalDecision === 'approved') {
+          await logClientApproved(
+            approvalToken.task_id,
+            approvalToken.id,
+            approvalToken.client_name,
+            'client-browser',
+            navigator.userAgent
+          )
+        } else {
+          await logClientRequestedChanges(
+            approvalToken.task_id,
+            approvalToken.id,
+            approvalToken.client_name,
+            feedback || 'Sin comentarios',
+            'client-browser'
+          )
+        }
+        console.log('✅ Activity log registrado')
+      } catch (logError) {
+        console.error('⚠️ Error registrando activity log:', logError)
+      }
       console.log('✅ Decisión guardada exitosamente')
       setSubmitted(true)
 
