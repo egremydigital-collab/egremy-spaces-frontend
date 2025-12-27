@@ -4,7 +4,7 @@ import { useUIStore } from '@/stores/ui.store'
 import { supabase } from '@/lib/supabase'
 import { cn, STATUS_CONFIG, STATUS_LABELS, formatRelativeTime } from '@/lib/utils'
 import type { TaskDetailed, TaskStatus, Comment } from '@/types'
-import { logApprovalLinkSent } from '@/lib/activity-logs'
+import { logApprovalLinkSent, logTaskDeleted } from '@/lib/activity-logs'
 import { useTaskEventsStore } from '@/stores/task-events.store'
 import {
   X,
@@ -272,10 +272,22 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         .delete()
         .eq('id', selectedTask.id)
       
-      if (error) throw error
+     if (error) throw error
       
-     console.log('🗑️ Tarea eliminada:', selectedTask.title)
+      console.log('🗑️ Tarea eliminada:', selectedTask.title)
       
+      // DEBUG
+      console.log('🔍 DEBUG - organization_id:', selectedTask.organization_id)
+      
+      // Log de auditoría
+      logTaskDeleted(
+        selectedTask.id,
+        selectedTask.title,
+        selectedTask.project_id,
+        selectedTask.project?.name,
+        selectedTask.organization_id
+      )
+
       setShowDeleteModal(false)
       closeTaskDrawer()
       

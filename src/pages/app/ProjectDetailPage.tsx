@@ -34,7 +34,7 @@ import { useDroppable } from '@dnd-kit/core'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import type { RealtimeChannel } from '@supabase/supabase-js'
-import { logStatusChange } from '@/lib/activity-logs'
+import { logStatusChange, logProjectDeleted } from '@/lib/activity-logs'
 
 // ============================================
 // CONSTANTS
@@ -187,186 +187,103 @@ React.useEffect(() => {
 }, [refreshTrigger, refreshTasks])
 
   // ============================================
-  // 🔴 SUPABASE REALTIME WITH RECONNECTION
+ // ============================================
+  // 🔴 SUPABASE REALTIME (SIMPLIFICADO)
   // ============================================
   React.useEffect(() => {
     if (!projectId) return
 
-    const connectRealtime = () => {
-      console.log('🔌 Conectando a Supabase Realtime...')
-      setConnectionStatus('reconnecting')
+    console.log('🔌 Conectando a Supabase Realtime...')
+    setConnectionStatus('reconnecting')
 
-      try {
-        const channel = supabase
-          .channel(`project-tasks-${projectId}`)
-          .on(
-            'postgres_changes',
-            {
-              event: '*',
-              schema: 'public',
-              table: 'tasks',
-              filter: `project_id=eq.${projectId}`,
-            },
-            async (payload) => {
-              console.log('📡 Realtime event:', payload.eventType)
+    const channel = supabase
+      .channel(`project-tasks-${projectId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tasks',
+          filter: `project_id=eq.${projectId}`,
+        },
+        async (payload) => {
+          console.log('📡 Realtime event:', payload.eventType)
 
-              try {
-                if (payload.eventType === 'INSERT') {
-                  const newTask = payload.new as any
-                  const { data: fullTask, error } = await supabase
-                    .from('tasks')
-                    .select(`
-                      *,
-                      assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
-                      project:projects!tasks_project_id_fkey(name, slug, client_name)
-                    `)
-                    .eq('id', newTask.id)
-                    .single()
+          if (payload.eventType === 'INSERT') {
+            const newTask = payload.new as any
+            const { data: fullTask } = await supabase
+              .from('tasks')
+              .select(`
+                *,
+                assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
+                project:projects!tasks_project_id_fkey(name, slug, client_name)
+              `)
+              .eq('id', newTask.id)
+              .single()
 
-                  if (error) throw error
-
-                  if (fullTask) {
-                    setTasks((prev) => {
-                      if (prev.some(t => t.id === fullTask.id)) return prev
-                      console.log('➕ Nueva tarea via Realtime:', fullTask.title)
-                      return [...prev, fullTask]
-                    })
-                  }
-                }
-
-                if (payload.eventType === 'UPDATE') {
-                  const updatedTask = payload.new as any
-                  console.log('🔄 Tarea actualizada via Realtime:', updatedTask.id)
-                  setTasks((prev) =>
-                    prev.map((t) =>
-                      t.id === updatedTask.id ? { ...t, ...updatedTask } : t
-                    )
-                  )
-                }
-
-                if (payload.eventType === 'DELETE') {
-                  const deletedTask = payload.old as any
-                  console.log('🗑️ Tarea eliminada via Realtime:', deletedTask.id)
-                  setTasks((prev) => prev.filter((t) => t.id !== deletedTask.id))
-                }
-              } catch (error) {
-                console.error('❌ Error procesando evento Realtime:', error)
-                // Hacer refresh como fallback
-                refreshTasksDebounced()
-              }
+            if (fullTask) {
+              setTasks((prev) => {
+                if (prev.some(t => t.id === fullTask.id)) return prev
+                return [...prev, fullTask]
+              })
             }
-          )
-          .subscribe((status, err) => {
-            console.log('📶 Realtime status:', status)
+          }
 
-            if (status === 'SUBSCRIBED') {
-              setIsRealtimeConnected(true)
-              setConnectionStatus('connected')
-              reconnectAttemptsRef.current = 0
-              console.log('✅ Realtime conectado')
-            } else if (status === 'CLOSED') {
-              setIsRealtimeConnected(false)
-              setConnectionStatus('offline')
-              console.warn('⚠️ Realtime desconectado')
-              
-              // Intentar reconectar
-              handleReconnect()
-            } else if (status === 'CHANNEL_ERROR') {
-              setIsRealtimeConnected(false)
-              setConnectionStatus('offline')
-              console.error('❌ Error en canal Realtime:', err)
-              toast.warning('Conexión en tiempo real perdida. Usando sincronización automática.')
-              
-              // Intentar reconectar
-              handleReconnect()
-            }
-          })
+          if (payload.eventType === 'UPDATE') {
+            const updatedTask = payload.new as any
+            setTasks((prev) =>
+              prev.map((t) =>
+                t.id === updatedTask.id ? { ...t, ...updatedTask } : t
+              )
+            )
+          }
 
-        channelRef.current = channel
-      } catch (error) {
-        console.error('❌ Error conectando Realtime:', error)
-        setConnectionStatus('offline')
-        handleReconnect()
-      }
-    }
-
-    const handleReconnect = () => {
-      if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-        console.error('❌ Máximo de intentos de reconexión alcanzado')
-        toast.error('No se pudo establecer conexión en tiempo real. Los cambios se sincronizarán cada 15 segundos.')
-        return
-      }
-
-      reconnectAttemptsRef.current++
-      const delay = RECONNECT_BASE_DELAY * reconnectAttemptsRef.current
-
-      console.log(`🔄 Reintentando conexión en ${delay/1000}s (intento ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`)
-      setConnectionStatus('reconnecting')
-
-      setTimeout(() => {
-        if (channelRef.current) {
-          supabase.removeChannel(channelRef.current)
+          if (payload.eventType === 'DELETE') {
+            const deletedTask = payload.old as any
+            setTasks((prev) => prev.filter((t) => t.id !== deletedTask.id))
+          }
         }
-        connectRealtime()
-      }, delay)
-    }
+      )
+      .subscribe((status) => {
+        console.log('📶 Realtime status:', status)
+        if (status === 'SUBSCRIBED') {
+          setIsRealtimeConnected(true)
+          setConnectionStatus('connected')
+        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+          setIsRealtimeConnected(false)
+          setConnectionStatus('offline')
+        }
+      })
 
-    connectRealtime()
-
-    // Cleanup
+    // Cleanup: CRÍTICO para evitar loops
     return () => {
-      if (channelRef.current) {
-        console.log('🔌 Desconectando Realtime...')
-        supabase.removeChannel(channelRef.current)
-      }
-      if (refreshTimeoutRef.current) {
-        clearTimeout(refreshTimeoutRef.current)
-      }
+      console.log('🔌 Desconectando Realtime...')
+      supabase.removeChannel(channel)
     }
-  }, [projectId, refreshTasksDebounced])
+  }, [projectId]) // Solo depende de projectId
 
   // ============================================
-  // 🔄 POLLING BACKUP
+// ============================================
+  // 🔄 POLLING BACKUP (SIMPLIFICADO)
   // ============================================
   React.useEffect(() => {
     if (!projectId) return
 
-    // Polling como backup (menos frecuente si Realtime está conectado)
-    const interval = isRealtimeConnected ? POLLING_INTERVAL * 2 : POLLING_INTERVAL
-    
+    // Polling solo si Realtime no está conectado
     const intervalId = setInterval(() => {
       if (!isRealtimeConnected) {
         console.log('🔄 Polling backup: refrescando tasks...')
-        refreshTasksDebounced()
+        refreshTasks()
       }
-    }, interval)
-
-    // Focus: refresca cuando vuelves a la pestaña
-    const onFocus = () => {
-      console.log('👁️ Focus: verificando actualizaciones...')
-      refreshTasksDebounced()
-    }
-    window.addEventListener('focus', onFocus)
-
-    // Visibility change
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        console.log('👀 Visibility: verificando actualizaciones...')
-        refreshTasksDebounced()
-      }
-    }
-    document.addEventListener('visibilitychange', onVisibilityChange)
+    }, POLLING_INTERVAL)
 
     return () => {
       clearInterval(intervalId)
-      window.removeEventListener('focus', onFocus)
-      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [projectId, isRealtimeConnected, refreshTasksDebounced])
+  }, [projectId, isRealtimeConnected])
 
   // ============================================
-  // TASK UPDATE CALLBACK
-  // ============================================
+  // TASK UPDATE CALLBACK  // ============================================
   // ============================================
 // DELETE PROJECT
 // ============================================
@@ -393,6 +310,13 @@ const handleDeleteProject = async () => {
     if (projectError) throw projectError
     
     console.log('🗑️ Proyecto eliminado:', project.name)
+    // Log de auditoría
+logProjectDeleted(
+  project.id,
+  project.name,
+  tasks.length,
+  project.organization_id
+)
     toast.success('Proyecto eliminado exitosamente')
     navigate('/app/projects')
     

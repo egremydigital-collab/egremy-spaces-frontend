@@ -11,6 +11,7 @@ export type EventType =
   | 'client_requested_changes'
   | 'task_created'
   | 'task_deleted'
+  | 'project_deleted'
   | 'comment_added'
 
 export type ActorType = 'user' | 'client' | 'system'
@@ -224,7 +225,72 @@ export async function logClientRequestedChanges(
     }
   })
 }
+/**
+ * Log cuando se elimina una tarea
+ */
+export async function logTaskDeleted(
+  taskId: string,
+  taskTitle: string,
+  projectId?: string,
+  projectName?: string,
+  organizationId?: string
+) {
+  return logActivity({
+    eventType: 'task_deleted',
+    taskId,
+    projectId,
+    organizationId,
+    meta: {
+      task_title: taskTitle,
+      project_name: projectName
+    }
+  })
+}
 
+/**
+ * Log cuando se elimina un proyecto
+ */
+export async function logProjectDeleted(
+  projectId: string,
+  projectName: string,
+  tasksCount: number,
+  organizationId?: string
+) {
+  return logActivity({
+  eventType: 'project_deleted',
+    projectId,
+    organizationId,
+    meta: {
+      event: 'project_deleted',
+      project_name: projectName,
+      tasks_deleted: tasksCount
+    }
+  })
+}
+
+/**
+ * Log cuando cambian las fechas de una tarea (Gantt-ready)
+ */
+export async function logTaskDatesChanged(
+  taskId: string,
+  taskTitle: string,
+  changes: {
+    prev_start_date?: string | null
+    new_start_date?: string | null
+    prev_due_date?: string | null
+    new_due_date?: string | null
+  }
+) {
+  return logActivity({
+    eventType: 'task_status_changed', // Reutilizamos este tipo
+    taskId,
+    meta: {
+      event: 'dates_changed',
+      task_title: taskTitle,
+      ...changes
+    }
+  })
+}
 // ============================================
 // QUERY HELPERS (para futura UI)
 // ============================================
