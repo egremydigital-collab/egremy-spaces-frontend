@@ -2,7 +2,7 @@ import * as React from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { Card, Badge, Avatar, Button, EmptyState, Spinner } from '@/components/ui'
 import { useUIStore } from '@/stores/ui.store'
-import { supabase } from '@/lib/supabase'
+import { supabase, handleSupabaseError } from '@/lib/supabase'
 import { TaskDrawer } from '@/components/tasks/TaskDrawer'
 import { TaskCreateModal } from '@/components/tasks/TaskCreateModal'
 import { toast } from '@/components/ui/Toast'
@@ -33,7 +33,6 @@ import {
 import { useDroppable } from '@dnd-kit/core'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
-import type { RealtimeChannel } from '@supabase/supabase-js'
 import { logStatusChange, logProjectDeleted } from '@/lib/activity-logs'
 
 // ============================================
@@ -41,8 +40,6 @@ import { logStatusChange, logProjectDeleted } from '@/lib/activity-logs'
 // ============================================
 const POLLING_INTERVAL = 15000 // 15 segundos
 const DEBOUNCE_DELAY = 300 // 300ms
-const MAX_RECONNECT_ATTEMPTS = 5
-const RECONNECT_BASE_DELAY = 2000 // 2 segundos
 
 export function ProjectDetailPage() {
   const { refreshTrigger } = useTaskEventsStore()
@@ -64,8 +61,6 @@ const navigate = useNavigate()
   // Refs para debounce y reconexión
   const refreshTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
   const lastRefreshRef = React.useRef<number>(0)
-  const reconnectAttemptsRef = React.useRef(0)
-  const channelRef = React.useRef<RealtimeChannel | null>(null)
 
   // Configurar sensores para drag & drop
   const sensors = useSensors(
@@ -320,10 +315,16 @@ logProjectDeleted(
     toast.success('Proyecto eliminado exitosamente')
     navigate('/app/projects')
     
-  } catch (err: any) {
-    console.error('❌ Error eliminando proyecto:', err)
-    toast.error(`Error al eliminar: ${err.message}`)
-  } finally {
+ } catch (err: any) {
+  console.error('❌ Error eliminando proyecto:', err)
+  handleSupabaseError(err, {
+    customMessages: {
+      401: 'Tu sesión expiró. Vuelve a iniciar sesión.',
+      403: 'No tienes permisos para eliminar este proyecto.',
+      406: 'El proyecto ya no existe o fue eliminado.'
+    }
+  })
+} finally {
     setIsDeletingProject(false)
   }
 }
@@ -379,9 +380,15 @@ logProjectDeleted(
       toast.success(`Tarea movida a ${STATUS_CONFIG[newStatus]?.label || newStatus}`)
       // Log de actividad
 logStatusChange(taskId, previousStatus, newStatus, task.title)
-    } catch (err) {
-      console.error('❌ Error guardando estado:', err)
-      toast.error('Error al mover la tarea. Revirtiendo cambio...')
+    } catch (err: any) {
+  console.error('❌ Error guardando estado:', err)
+  handleSupabaseError(err, {
+    customMessages: {
+      401: 'Tu sesión expiró. Vuelve a iniciar sesión.',
+      403: 'No tienes permisos para mover esta tarea.',
+      406: 'La tarea ya no existe o fue eliminada.'
+    }
+  })
       
       // Revertir cambio
       setTasks((prev) =>

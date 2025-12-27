@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Button, Badge, Avatar, Spinner } from '@/components/ui'
 import { useUIStore } from '@/stores/ui.store'
-import { supabase } from '@/lib/supabase'
+import { supabase, handleSupabaseError } from '@/lib/supabase'
 import { cn, STATUS_CONFIG, STATUS_LABELS, formatRelativeTime } from '@/lib/utils'
 import type { TaskDetailed, TaskStatus, Comment } from '@/types'
 import { logApprovalLinkSent, logTaskDeleted } from '@/lib/activity-logs'
@@ -299,10 +299,10 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         }
       }, 100)
       
-    } catch (err: any) {
-      console.error('❌ Error eliminando tarea:', err)
-      alert(`Error al eliminar: ${err.message}`)
-    } finally {
+  } catch (err: any) {
+  console.error('❌ Error eliminando tarea:', err)
+  handleSupabaseError(err)
+} finally {
       setIsDeleting(false)
     }
   }
@@ -472,10 +472,16 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         }
       }, 3000)
 
-    } catch (err: any) {
-      console.error('❌ Error completo:', err)
-      alert(`Error al generar el link: ${err?.message || 'Error desconocido'}`)
-    } finally {
+   } catch (err: any) {
+  console.error('❌ Error completo:', err)
+  handleSupabaseError(err, {
+  customMessages: {
+    401: 'Tu sesión expiró. Vuelve a iniciar sesión.',
+    403: 'No tienes permisos para generar links de aprobación.',
+    406: 'La tarea ya no existe o fue eliminada.'
+  }
+})
+} finally {
       setIsRequestingApproval(false)
     }
   }
