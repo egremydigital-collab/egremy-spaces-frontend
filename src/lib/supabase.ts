@@ -39,10 +39,10 @@ interface SupabaseErrorOptions {
     401?: string
     403?: string
     404?: string
+    406?: string
     409?: string
   }
 }
-
 export function handleSupabaseError(
   error: any, 
   options: SupabaseErrorOptions = { showToast: true }

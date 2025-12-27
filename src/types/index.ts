@@ -111,6 +111,7 @@ export interface Task {
   team_id: string | null
   due_date: string | null
   started_at: string | null
+  start_date: string | null
   completed_at: string | null
   delivery_type: string | null
   affected_systems: string[] | null

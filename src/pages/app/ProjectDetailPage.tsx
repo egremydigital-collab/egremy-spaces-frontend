@@ -9,6 +9,7 @@ import { toast } from '@/components/ui/Toast'
 import { cn, STATUS_CONFIG, KANBAN_COLUMNS } from '@/lib/utils'
 import type { Project, TaskDetailed, TaskStatus } from '@/types'
 import { useTaskEventsStore } from '@/stores/task-events.store'
+import { GanttView } from '@/components/gantt/GanttView'
 import {
   ArrowLeft,
   Plus,
@@ -57,7 +58,7 @@ export function ProjectDetailPage() {
 const [isDeletingProject, setIsDeletingProject] = React.useState(false)
 const navigate = useNavigate()
   const [connectionStatus, setConnectionStatus] = React.useState<'connected' | 'reconnecting' | 'offline'>('offline')
-
+const [viewMode, setViewMode] = React.useState<'kanban' | 'gantt'>('kanban')
   // Refs para debounce y reconexión
   const refreshTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
   const lastRefreshRef = React.useRef<number>(0)
@@ -504,6 +505,32 @@ logStatusChange(taskId, previousStatus, newStatus, task.title)
   <Trash2 className="w-4 h-4" />
 </Button>
 
+{/* Toggle Kanban/Gantt */}
+<div className="hidden sm:flex items-center bg-bg-tertiary rounded-lg p-1">
+  <button
+    onClick={() => setViewMode('kanban')}
+    className={cn(
+      'px-3 py-1.5 text-sm rounded-md transition-colors',
+      viewMode === 'kanban'
+        ? 'bg-accent-primary text-white'
+        : 'text-text-secondary hover:text-text-primary'
+    )}
+  >
+    Kanban
+  </button>
+  <button
+    onClick={() => setViewMode('gantt')}
+    className={cn(
+      'px-3 py-1.5 text-sm rounded-md transition-colors',
+      viewMode === 'gantt'
+        ? 'bg-accent-primary text-white'
+        : 'text-text-secondary hover:text-text-primary'
+    )}
+  >
+    Gantt
+  </button>
+</div>
+
           <Button onClick={openCreateTaskModal} size="sm" className="shrink-0">
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline ml-1">Nueva Tarea</span>
@@ -521,35 +548,44 @@ logStatusChange(taskId, previousStatus, newStatus, task.title)
         </div>
       )}
 
-      {/* Kanban Board */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-      >
-        <div className="flex-1 overflow-x-auto p-4 md:p-6">
-          <div className="flex gap-3 md:gap-4 h-full min-w-max">
-            {KANBAN_COLUMNS.map((status) => (
-              <DroppableColumn
-                key={status}
-                status={status}
-                tasks={tasksByStatus.grouped[status]}
-                onTaskClick={openTaskDrawer}
-              />
-            ))}
-          </div>
+{/* Vista: Kanban o Gantt */}
+{viewMode === 'kanban' ? (
+  <DndContext
+    sensors={sensors}
+    collisionDetection={closestCenter}
+    onDragStart={handleDragStart}
+    onDragEnd={handleDragEnd}
+  >
+    <div className="flex-1 overflow-x-auto p-4 md:p-6">
+      <div className="flex gap-3 md:gap-4 h-full min-w-max">
+        {KANBAN_COLUMNS.map((status) => (
+          <DroppableColumn
+            key={status}
+            status={status}
+            tasks={tasksByStatus.grouped[status]}
+            onTaskClick={openTaskDrawer}
+          />
+        ))}
+      </div>
+    </div>
+
+    <DragOverlay>
+      {activeTask ? (
+        <div className="opacity-80">
+          <TaskCard task={activeTask} onClick={() => {}} isDragging />
         </div>
-
-        <DragOverlay>
-          {activeTask ? (
-            <div className="opacity-80">
-              <TaskCard task={activeTask} onClick={() => {}} isDragging />
-            </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
-
+      ) : null}
+    </DragOverlay>
+  </DndContext>
+) : (
+  <div className="flex-1 overflow-hidden">
+    <GanttView
+      projectId={projectId || ''}
+      tasks={tasks}
+      onTasksChange={setTasks}
+    />
+  </div>
+)}
       {/* Modals */}
       {createTaskModalOpen && project && (
         <TaskCreateModal
