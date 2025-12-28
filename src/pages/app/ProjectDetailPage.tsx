@@ -560,7 +560,7 @@ logStatusChange(taskId, previousStatus, newStatus, task.title)
 </Button>
 
 {/* Toggle Kanban/Gantt */}
-<div className="hidden sm:flex items-center bg-bg-tertiary rounded-lg p-1">
+<div className="flex items-center bg-bg-tertiary rounded-lg p-1">
   <button
     onClick={() => setViewMode('kanban')}
     className={cn(
