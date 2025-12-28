@@ -55,7 +55,7 @@ interface TaskDrawerProps {
 }
 
 export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
-  const { selectedTask, taskDrawerOpen, closeTaskDrawer } = useUIStore()
+  const { selectedTask, taskDrawerOpen, closeTaskDrawer, updateSelectedTask } = useUIStore()
   const { triggerRefresh } = useTaskEventsStore()
   
   // State
@@ -239,6 +239,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       if (onTaskUpdated && data) {
         onTaskUpdated({ ...selectedTask, ...data })
       }
+      updateSelectedTask({ ...selectedTask, ...data })
       toast.success('Título actualizado')
       
       // Refrescar vistas
@@ -284,6 +285,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       if (onTaskUpdated && data) {
         onTaskUpdated({ ...selectedTask, ...data })
       }
+      updateSelectedTask({ ...selectedTask, ...data })
       toast.success('Descripción actualizada')
     } catch (err) {
       console.error('Error updating description:', err)
@@ -319,6 +321,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       if (onTaskUpdated && data) {
         onTaskUpdated({ ...selectedTask, ...data })
       }
+      updateSelectedTask({ ...selectedTask, ...data })
       toast.success('Prioridad actualizada')
       
       // Refrescar vistas

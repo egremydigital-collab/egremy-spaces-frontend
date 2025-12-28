@@ -26,6 +26,7 @@ interface UIState {
   
   openTaskDrawer: (task: TaskDetailed) => void
   closeTaskDrawer: () => void
+  updateSelectedTask: (task: TaskDetailed) => void
   
   openCreateProjectModal: () => void
   closeCreateProjectModal: () => void
@@ -56,6 +57,7 @@ export const useUIStore = create<UIState>()((set) => ({
   // Task drawer actions
   openTaskDrawer: (task) => set({ selectedTask: task, taskDrawerOpen: true }),
   closeTaskDrawer: () => set({ selectedTask: null, taskDrawerOpen: false }),
+  updateSelectedTask: (task) => set({ selectedTask: task }),
 
   // Modal actions
   openCreateProjectModal: () => set({ createProjectModalOpen: true }),
