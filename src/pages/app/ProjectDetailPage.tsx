@@ -9,6 +9,7 @@ import { toast } from '@/components/ui/Toast'
 import { cn, STATUS_CONFIG, KANBAN_COLUMNS } from '@/lib/utils'
 import type { Project, TaskDetailed, TaskStatus } from '@/types'
 import { useTaskEventsStore } from '@/stores/task-events.store'
+import { useAuthStore } from '@/stores/auth.store'
 import { GanttView } from '@/components/gantt/GanttView'
 import {
   ArrowLeft,
@@ -57,8 +58,16 @@ export function ProjectDetailPage() {
   const [showDeleteProjectModal, setShowDeleteProjectModal] = React.useState(false)
 const [isDeletingProject, setIsDeletingProject] = React.useState(false)
 const navigate = useNavigate()
+const { profile } = useAuthStore()
   const [connectionStatus, setConnectionStatus] = React.useState<'connected' | 'reconnecting' | 'offline'>('offline')
 const [viewMode, setViewMode] = React.useState<'kanban' | 'gantt'>('kanban')
+
+// Filtros
+const [filterAssignee, setFilterAssignee] = React.useState<string>('')
+const [filterPriority, setFilterPriority] = React.useState<string>('')
+const [filterOnlyMine, setFilterOnlyMine] = React.useState(false)
+const [teamMembers, setTeamMembers] = React.useState<{ id: string; full_name: string }[]>([])
+
   // Refs para debounce y reconexión
   const refreshTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
   const lastRefreshRef = React.useRef<number>(0)
@@ -167,6 +176,29 @@ const [viewMode, setViewMode] = React.useState<'kanban' | 'gantt'>('kanban')
       setIsLoading(false)
     }
   }, [projectId])
+
+  // Cargar miembros del equipo para filtros
+const loadTeamMembers = React.useCallback(async () => {
+  if (!project?.organization_id) return
+  
+  try {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .eq('organization_id', project.organization_id)
+      .order('full_name')
+    
+    if (data) setTeamMembers(data)
+  } catch (err) {
+    console.error('Error loading team members:', err)
+  }
+}, [project?.organization_id])
+
+React.useEffect(() => {
+  if (project) {
+    loadTeamMembers()
+  }
+}, [project, loadTeamMembers])
 
   // Cargar proyecto al montar
   React.useEffect(() => {
@@ -401,19 +433,37 @@ logStatusChange(taskId, previousStatus, newStatus, task.title)
   // ============================================
   // COMPUTED VALUES
   // ============================================
-  const tasksByStatus = React.useMemo(() => {
-    const grouped: Record<TaskStatus, TaskDetailed[]> = {} as Record<TaskStatus, TaskDetailed[]>
-    
-    KANBAN_COLUMNS.forEach((status) => {
-      grouped[status] = tasks.filter((t) => t.status === status)
-    })
-    
-    const specialTasks = tasks.filter((t) => 
-      !KANBAN_COLUMNS.includes(t.status)
-    )
-    
-    return { grouped, specialTasks }
-  }, [tasks])
+ const tasksByStatus = React.useMemo(() => {
+  // Aplicar filtros
+  let filteredTasks = tasks
+
+  // Filtro: Solo mis tareas
+  if (filterOnlyMine && profile?.id) {
+    filteredTasks = filteredTasks.filter((t) => t.assignee_id === profile.id)
+  }
+
+  // Filtro: Por asignado específico
+  if (filterAssignee) {
+    filteredTasks = filteredTasks.filter((t) => t.assignee_id === filterAssignee)
+  }
+
+  // Filtro: Por prioridad
+  if (filterPriority) {
+    filteredTasks = filteredTasks.filter((t) => t.priority === filterPriority)
+  }
+
+  const grouped: Record<TaskStatus, TaskDetailed[]> = {} as Record<TaskStatus, TaskDetailed[]>
+  
+  KANBAN_COLUMNS.forEach((status) => {
+    grouped[status] = filteredTasks.filter((t) => t.status === status)
+  })
+  
+  const specialTasks = filteredTasks.filter((t) => 
+    !KANBAN_COLUMNS.includes(t.status)
+  )
+  
+  return { grouped, specialTasks }
+}, [tasks, filterOnlyMine, filterAssignee, filterPriority, profile?.id])
 
   // ============================================
   // RENDER
@@ -537,6 +587,69 @@ logStatusChange(taskId, previousStatus, newStatus, task.title)
           </Button>
         </div>
       </div>
+
+{/* Barra de Filtros */}
+<div className="px-4 md:px-6 py-3 border-b border-bg-tertiary bg-bg-primary flex flex-wrap items-center gap-3">
+  {/* Solo mis tareas */}
+  <button
+    onClick={() => {
+      setFilterOnlyMine(!filterOnlyMine)
+      if (!filterOnlyMine) setFilterAssignee('')
+    }}
+    className={cn(
+      'px-3 py-1.5 text-sm rounded-lg border transition-colors',
+      filterOnlyMine
+        ? 'bg-accent-primary text-white border-accent-primary'
+        : 'bg-bg-secondary text-text-secondary border-bg-tertiary hover:border-text-secondary'
+    )}
+  >
+    Mis tareas
+  </button>
+
+  {/* Filtro por asignado */}
+  <select
+    value={filterAssignee}
+    onChange={(e) => {
+      setFilterAssignee(e.target.value)
+      if (e.target.value) setFilterOnlyMine(false)
+    }}
+    className="px-3 py-1.5 text-sm bg-bg-secondary border border-bg-tertiary rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary/50"
+  >
+    <option value="">Todos los asignados</option>
+    {teamMembers.map((member) => (
+      <option key={member.id} value={member.id}>
+        {member.full_name}
+      </option>
+    ))}
+  </select>
+
+  {/* Filtro por prioridad */}
+  <select
+    value={filterPriority}
+    onChange={(e) => setFilterPriority(e.target.value)}
+    className="px-3 py-1.5 text-sm bg-bg-secondary border border-bg-tertiary rounded-lg text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary/50"
+  >
+    <option value="">Todas las prioridades</option>
+    <option value="urgent">🔴 Urgente</option>
+    <option value="high">🟠 Alta</option>
+    <option value="medium">🟡 Media</option>
+    <option value="low">🟢 Baja</option>
+  </select>
+
+  {/* Limpiar filtros */}
+  {(filterOnlyMine || filterAssignee || filterPriority) && (
+    <button
+      onClick={() => {
+        setFilterOnlyMine(false)
+        setFilterAssignee('')
+        setFilterPriority('')
+      }}
+      className="px-3 py-1.5 text-sm text-accent-danger hover:underline"
+    >
+      Limpiar filtros
+    </button>
+  )}
+</div>
 
       {/* Special Status Alert */}
       {tasksByStatus.specialTasks.length > 0 && (
