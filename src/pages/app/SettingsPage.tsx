@@ -11,8 +11,9 @@ import {
   CardDescription,
   CardContent,
   Avatar,
+  Spinner,
 } from '@/components/ui'
-import { User, Lock, Eye, EyeOff, Save, CheckCircle } from 'lucide-react'
+import { User, Lock, Eye, EyeOff, Save, CheckCircle, Camera, Trash2 } from 'lucide-react'
 
 export function SettingsPage() {
   const { profile, updateProfile } = useAuthStore()
@@ -23,6 +24,12 @@ export function SettingsPage() {
     email: profile?.email || '',
   })
   const [isUpdatingProfile, setIsUpdatingProfile] = React.useState(false)
+
+  // Avatar state
+  const [isUploadingAvatar, setIsUploadingAvatar] = React.useState(false)
+  const [isDeletingAvatar, setIsDeletingAvatar] = React.useState(false)
+  const [avatarUrl, setAvatarUrl] = React.useState(profile?.avatar_url || '')
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   // Password form state
   const [passwordData, setPasswordData] = React.useState({
@@ -41,8 +48,120 @@ export function SettingsPage() {
         full_name: profile.full_name || '',
         email: profile.email || '',
       })
+      setAvatarUrl(profile.avatar_url || '')
     }
   }, [profile])
+
+  // ============================================
+  // Avatar Upload
+  // ============================================
+  const handleAvatarSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !profile) return
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Solo se permiten imágenes')
+      return
+    }
+
+    // Validate file size (2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('La imagen es muy grande. Máximo 2MB.')
+      return
+    }
+
+    setIsUploadingAvatar(true)
+
+    try {
+      // Generate unique file name
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${profile.id}/${Date.now()}.${fileExt}`
+
+      // Delete old avatar if exists
+      if (profile.avatar_url) {
+        const oldPath = profile.avatar_url.split('/avatars/')[1]
+        if (oldPath) {
+          await supabase.storage.from('avatars').remove([oldPath])
+        }
+      }
+
+      // Upload new avatar
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: true,
+        })
+
+      if (uploadError) throw uploadError
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(fileName)
+
+      // Update profile with new avatar URL
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: publicUrl })
+        .eq('id', profile.id)
+
+      if (updateError) throw updateError
+
+      // Update local state
+      setAvatarUrl(publicUrl)
+      await updateProfile({ avatar_url: publicUrl })
+      
+      toast.success('Foto de perfil actualizada')
+
+    } catch (err: any) {
+      console.error('Error uploading avatar:', err)
+      toast.error(err.message || 'Error al subir la imagen')
+    } finally {
+      setIsUploadingAvatar(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  // ============================================
+  // Avatar Delete
+  // ============================================
+  const handleDeleteAvatar = async () => {
+    if (!profile || !avatarUrl) return
+    if (!confirm('¿Eliminar tu foto de perfil?')) return
+
+    setIsDeletingAvatar(true)
+
+    try {
+      // Extract path from URL
+      const oldPath = avatarUrl.split('/avatars/')[1]
+      if (oldPath) {
+        await supabase.storage.from('avatars').remove([oldPath])
+      }
+
+      // Update profile
+      const { error } = await supabase
+        .from('profiles')
+        .update({ avatar_url: null })
+        .eq('id', profile.id)
+
+      if (error) throw error
+
+      setAvatarUrl('')
+      await updateProfile({ avatar_url: null })
+      
+      toast.success('Foto de perfil eliminada')
+
+    } catch (err: any) {
+      console.error('Error deleting avatar:', err)
+      toast.error(err.message || 'Error al eliminar la imagen')
+    } finally {
+      setIsDeletingAvatar(false)
+    }
+  }
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -131,12 +250,35 @@ export function SettingsPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleUpdateProfile} className="space-y-4">
+            {/* Avatar Section */}
             <div className="flex items-center gap-4 mb-6">
-              <Avatar
-                name={profileData.full_name || 'Usuario'}
-                size="lg"
-              />
-              <div>
+              <div className="relative group">
+                <Avatar
+                  name={profileData.full_name || 'Usuario'}
+                  src={avatarUrl}
+                  size="lg"
+                />
+                {/* Upload overlay */}
+                <div 
+                  className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {isUploadingAvatar ? (
+                    <Spinner size="sm" className="text-white" />
+                  ) : (
+                    <Camera className="w-5 h-5 text-white" />
+                  )}
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarSelect}
+                  className="hidden"
+                  disabled={isUploadingAvatar}
+                />
+              </div>
+              <div className="flex-1">
                 <p className="font-medium text-text-primary">{profileData.full_name || 'Usuario'}</p>
                 <p className="text-sm text-text-secondary">{profileData.email}</p>
                 <p className="text-xs text-text-secondary mt-1">
@@ -144,6 +286,44 @@ export function SettingsPage() {
                    profile?.team === 'orangutan_n8n' ? 'Orangutan n8n' : 
                    profile?.team || 'Sin equipo'} • {profile?.role || 'member'}
                 </p>
+                {/* Avatar actions */}
+                <div className="flex items-center gap-2 mt-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploadingAvatar}
+                  >
+                    {isUploadingAvatar ? (
+                      <>
+                        <Spinner size="sm" className="mr-1" />
+                        Subiendo...
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="w-3 h-3 mr-1" />
+                        Cambiar foto
+                      </>
+                    )}
+                  </Button>
+                  {avatarUrl && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleDeleteAvatar}
+                      disabled={isDeletingAvatar}
+                      className="text-accent-danger hover:text-accent-danger"
+                    >
+                      {isDeletingAvatar ? (
+                        <Spinner size="sm" />
+                      ) : (
+                        <Trash2 className="w-3 h-3" />
+                      )}
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
 
