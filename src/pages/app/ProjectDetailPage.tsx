@@ -10,6 +10,7 @@ import { cn, STATUS_CONFIG, KANBAN_COLUMNS } from '@/lib/utils'
 import type { Project, TaskDetailed, TaskStatus } from '@/types'
 import { useTaskEventsStore } from '@/stores/task-events.store'
 import { useAuthStore } from '@/stores/auth.store'
+import { useLocalStorage } from '@/hooks/useLocalStorage'
 import { GanttView } from '@/components/gantt/GanttView'
 import {
   ArrowLeft,
@@ -60,12 +61,12 @@ const [isDeletingProject, setIsDeletingProject] = React.useState(false)
 const navigate = useNavigate()
 const { profile } = useAuthStore()
   const [connectionStatus, setConnectionStatus] = React.useState<'connected' | 'reconnecting' | 'offline'>('offline')
-const [viewMode, setViewMode] = React.useState<'kanban' | 'gantt'>('kanban')
+const [viewMode, setViewMode] = useLocalStorage<'kanban' | 'gantt'>(`project-${projectId}-viewMode`, 'kanban')
 
-// Filtros
-const [filterAssignee, setFilterAssignee] = React.useState<string>('')
-const [filterPriority, setFilterPriority] = React.useState<string>('')
-const [filterOnlyMine, setFilterOnlyMine] = React.useState(false)
+// Filtros (persistentes)
+const [filterAssignee, setFilterAssignee] = useLocalStorage<string>(`project-${projectId}-filterAssignee`, '')
+const [filterPriority, setFilterPriority] = useLocalStorage<string>(`project-${projectId}-filterPriority`, '')
+const [filterOnlyMine, setFilterOnlyMine] = useLocalStorage<boolean>(`project-${projectId}-filterOnlyMine`, false)
 const [teamMembers, setTeamMembers] = React.useState<{ id: string; full_name: string }[]>([])
 
   // Refs para debounce y reconexión
