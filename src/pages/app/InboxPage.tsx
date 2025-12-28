@@ -207,15 +207,13 @@ export function InboxPage() {
     )
   }
 
-  if (notifications.length === 0) {
-    return (
-      <EmptyState
-        icon={<InboxIcon className="w-6 h-6 text-text-secondary" />}
-        title="Inbox vacío"
-        description="No tienes notificaciones pendientes"
-      />
-    )
-  }
+if (notifications.length === 0) {
+  return (
+    <EmptyState
+      preset="inbox"
+    />
+  )
+}
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">

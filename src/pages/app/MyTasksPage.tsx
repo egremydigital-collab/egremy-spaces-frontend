@@ -270,27 +270,21 @@ export function MyTasksPage() {
       ) : (
         /* Vista Lista */
         <>
-          {/* Empty State */}
-          {tasks.length === 0 ? (
-            <EmptyState
-              icon={<CheckSquare className="w-6 h-6 text-text-secondary" />}
-              title={activeFilter === 'all' 
-                ? "No tienes tareas pendientes" 
-                : `No hay tareas ${FILTER_CONFIG[activeFilter].label.toLowerCase()}`
-              }
-              description={activeFilter === 'all'
-                ? "¡Excelente! Estás al día con tu trabajo"
-                : "Prueba con otro filtro o revisa más tarde"
-              }
-              action={activeFilter !== 'all' ? (
-                <button
-                  onClick={clearFilter}
-                  className="mt-4 px-4 py-2 text-sm bg-accent-primary text-white rounded-lg hover:bg-accent-primary/90 transition-colors"
-                >
-                  Ver todas las tareas
-                </button>
-              ) : undefined}
-            />
+{/* Empty State */}
+{tasks.length === 0 ? (
+  <EmptyState
+    preset={activeFilter === 'all' ? 'tasks' : 'no-tasks'}
+    title={activeFilter === 'all'
+      ? "¡Todo al día!"
+      : `No hay tareas ${FILTER_CONFIG[activeFilter].label.toLowerCase()}`
+    }
+    description={activeFilter === 'all'
+      ? "No tienes tareas pendientes. Disfruta el momento."
+      : "Prueba con otro filtro o revisa más tarde"
+    }
+    actionText={activeFilter !== 'all' ? "Ver todas las tareas" : undefined}
+    onAction={activeFilter !== 'all' ? clearFilter : undefined}
+  />
           ) : (
             /* Task Groups */
             <div className="space-y-6">
