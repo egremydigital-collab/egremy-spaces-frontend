@@ -528,7 +528,7 @@ logStatusChange(taskId, previousStatus, newStatus, task.title)
           </div>
           
           {/* Connection Status Indicator */}
-          <div className="hidden sm:flex items-center gap-1.5 text-xs">
+          <div className="flex items-center bg-bg-tertiary rounded-lg p-1">
             {connectionStatus === 'connected' ? (
               <>
                 <Wifi className="w-3.5 h-3.5 text-accent-success" />
