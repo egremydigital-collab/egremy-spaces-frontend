@@ -10,6 +10,7 @@ import {
   ProjectDetailPage,
   InboxPage,
   MyTasksPage,
+  SettingsPage,
   ApprovalPage,
 } from '@/pages'
 
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="my-tasks" element={<MyTasksPage />} />
         <Route path="projects" element={<ProjectsPage />} />
         <Route path="projects/:projectId" element={<ProjectDetailPage />} />
+        <Route path="settings" element={<SettingsPage />} />
       </Route>
 
       {/* Catch all - redirect to app */}

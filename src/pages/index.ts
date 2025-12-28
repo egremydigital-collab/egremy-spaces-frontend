@@ -7,6 +7,6 @@ export { ProjectsPage } from './app/ProjectsPage'
 export { ProjectDetailPage } from './app/ProjectDetailPage'
 export { InboxPage } from './app/InboxPage'
 export { MyTasksPage } from './app/MyTasksPage'
-
+export { SettingsPage } from './app/SettingsPage'
 // Public pages
 export { ApprovalPage } from './public/ApprovalPage'
