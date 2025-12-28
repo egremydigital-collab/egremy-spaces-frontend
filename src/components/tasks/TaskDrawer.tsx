@@ -7,6 +7,7 @@ import type { TaskDetailed, TaskStatus, Comment } from '@/types'
 import { logApprovalLinkSent, logTaskDeleted } from '@/lib/activity-logs'
 import { useTaskEventsStore } from '@/stores/task-events.store'
 import { TaskAttachments } from './TaskAttachments'
+import { toast } from 'sonner'
 import {
   X,
   Calendar,
@@ -23,6 +24,7 @@ import {
   Check,
   Trash2,
   ArrowLeft,
+  Pencil,
 } from 'lucide-react'
 
 // ============================================
@@ -30,6 +32,18 @@ import {
 // ============================================
 const N8N_WEBHOOK_URL = 'https://curso-orangutan-n8n.crkear.easypanel.host/webhook/egremy/approval-requested'
 const N8N_WEBHOOK_SECRET = 'EgremySpaces2024SecretKey!'
+
+// ============================================
+// Priority Configuration
+// ============================================
+const PRIORITY_CONFIG = {
+  urgent: { label: '🔴 Urgente', color: 'bg-red-500/20 text-red-400' },
+  high: { label: '🟠 Alta', color: 'bg-orange-500/20 text-orange-400' },
+  medium: { label: '🟡 Media', color: 'bg-yellow-500/20 text-yellow-400' },
+  low: { label: '🟢 Baja', color: 'bg-green-500/20 text-green-400' },
+} as const
+
+type Priority = keyof typeof PRIORITY_CONFIG
 
 // ============================================
 // TaskDrawer - Panel lateral de detalles
@@ -56,6 +70,24 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   const [isSavingDueDate, setIsSavingDueDate] = React.useState(false)
 
   // ============================================
+  // NUEVOS ESTADOS PARA EDICIÓN
+  // ============================================
+  const [isEditingTitle, setIsEditingTitle] = React.useState(false)
+  const [editedTitle, setEditedTitle] = React.useState('')
+  const [isSavingTitle, setIsSavingTitle] = React.useState(false)
+
+  const [isEditingDescription, setIsEditingDescription] = React.useState(false)
+  const [editedDescription, setEditedDescription] = React.useState('')
+  const [isSavingDescription, setIsSavingDescription] = React.useState(false)
+
+  const [editedPriority, setEditedPriority] = React.useState<Priority>('medium')
+  const [isSavingPriority, setIsSavingPriority] = React.useState(false)
+
+  // Refs para inputs
+  const titleInputRef = React.useRef<HTMLInputElement>(null)
+  const descriptionTextareaRef = React.useRef<HTMLTextAreaElement>(null)
+
+  // ============================================
   // Estado para Solicitar Aprobación
   // ============================================
   const [showApprovalModal, setShowApprovalModal] = React.useState(false)
@@ -75,6 +107,10 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   React.useEffect(() => {
     if (selectedTask && taskDrawerOpen) {
       setEditedStatus(selectedTask.status)
+      setEditedTitle(selectedTask.title)
+      setEditedDescription(selectedTask.description || '')
+      setEditedPriority((selectedTask.priority as Priority) || 'medium')
+      
       // Inicializar fecha en formato YYYY-MM-DD para el input date
       if (selectedTask.due_date) {
         const dateOnly = selectedTask.due_date.split('T')[0]
@@ -82,9 +118,28 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       } else {
         setEditedDueDate('')
       }
+      
+      // Reset editing states
+      setIsEditingTitle(false)
+      setIsEditingDescription(false)
+      
       loadComments()
     }
   }, [selectedTask, taskDrawerOpen])
+
+  // Focus en input cuando se activa edición
+  React.useEffect(() => {
+    if (isEditingTitle && titleInputRef.current) {
+      titleInputRef.current.focus()
+      titleInputRef.current.select()
+    }
+  }, [isEditingTitle])
+
+  React.useEffect(() => {
+    if (isEditingDescription && descriptionTextareaRef.current) {
+      descriptionTextareaRef.current.focus()
+    }
+  }, [isEditingDescription])
 
   // Bloquear scroll del body cuando el drawer está abierto en móvil
   React.useEffect(() => {
@@ -102,6 +157,18 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   React.useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // Si estamos editando, cancelar edición
+        if (isEditingTitle) {
+          setIsEditingTitle(false)
+          setEditedTitle(selectedTask?.title || '')
+          return
+        }
+        if (isEditingDescription) {
+          setIsEditingDescription(false)
+          setEditedDescription(selectedTask?.description || '')
+          return
+        }
+        
         if (showDeleteModal) {
           setShowDeleteModal(false)
         } else if (showApprovalModal) {
@@ -117,7 +184,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
     }
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [closeTaskDrawer, showApprovalModal, showDeleteModal, approvalLink])
+  }, [closeTaskDrawer, showApprovalModal, showDeleteModal, approvalLink, isEditingTitle, isEditingDescription, selectedTask])
 
   // Load comments
   const loadComments = async () => {
@@ -140,17 +207,137 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
     }
   }
 
-  // Update task status
-  const handleStatusChange = async (newStatus: TaskStatus) => {
-    console.log('🎯 handleStatusChange llamado:', newStatus)
-    console.log('selectedTask:', selectedTask)
-    
-    if (!selectedTask || newStatus === selectedTask.status) {
-      console.log('❌ No hay cambio de estado')
+  // ============================================
+  // GUARDAR TÍTULO
+  // ============================================
+  const handleSaveTitle = async () => {
+    if (!selectedTask || !editedTitle.trim()) {
+      toast.error('El título es requerido')
       return
     }
     
-    console.log('📡 Enviando actualización a Supabase...')
+    if (editedTitle.trim() === selectedTask.title) {
+      setIsEditingTitle(false)
+      return
+    }
+
+    setIsSavingTitle(true)
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .update({ 
+          title: editedTitle.trim(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedTask.id)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setIsEditingTitle(false)
+      if (onTaskUpdated && data) {
+        onTaskUpdated({ ...selectedTask, ...data })
+      }
+      toast.success('Título actualizado')
+      
+      // Refrescar vistas
+      triggerRefresh()
+      if (onRefreshTasks) {
+        setTimeout(() => onRefreshTasks(), 100)
+      }
+    } catch (err) {
+      console.error('Error updating title:', err)
+      toast.error('Error al guardar')
+      setEditedTitle(selectedTask.title)
+    } finally {
+      setIsSavingTitle(false)
+    }
+  }
+
+  // ============================================
+  // GUARDAR DESCRIPCIÓN
+  // ============================================
+  const handleSaveDescription = async () => {
+    if (!selectedTask) return
+    
+    if (editedDescription.trim() === (selectedTask.description || '')) {
+      setIsEditingDescription(false)
+      return
+    }
+
+    setIsSavingDescription(true)
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .update({ 
+          description: editedDescription.trim() || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedTask.id)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setIsEditingDescription(false)
+      if (onTaskUpdated && data) {
+        onTaskUpdated({ ...selectedTask, ...data })
+      }
+      toast.success('Descripción actualizada')
+    } catch (err) {
+      console.error('Error updating description:', err)
+      toast.error('Error al guardar')
+      setEditedDescription(selectedTask.description || '')
+    } finally {
+      setIsSavingDescription(false)
+    }
+  }
+
+  // ============================================
+  // GUARDAR PRIORIDAD
+  // ============================================
+  const handlePriorityChange = async (newPriority: Priority) => {
+    if (!selectedTask || newPriority === selectedTask.priority) return
+
+    setIsSavingPriority(true)
+    setEditedPriority(newPriority)
+    
+    try {
+      const { data, error } = await supabase
+        .from('tasks')
+        .update({ 
+          priority: newPriority,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedTask.id)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      if (onTaskUpdated && data) {
+        onTaskUpdated({ ...selectedTask, ...data })
+      }
+      toast.success('Prioridad actualizada')
+      
+      // Refrescar vistas
+      triggerRefresh()
+      if (onRefreshTasks) {
+        setTimeout(() => onRefreshTasks(), 100)
+      }
+    } catch (err) {
+      console.error('Error updating priority:', err)
+      toast.error('Error al guardar')
+      setEditedPriority((selectedTask.priority as Priority) || 'medium')
+    } finally {
+      setIsSavingPriority(false)
+    }
+  }
+
+  // Update task status
+  const handleStatusChange = async (newStatus: TaskStatus) => {
+    if (!selectedTask || newStatus === selectedTask.status) return
       
     setIsSaving(true)
     try {
@@ -171,9 +358,16 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       if (onTaskUpdated && data) {
         onTaskUpdated({ ...selectedTask, ...data })
       }
-      console.log('✅ Estado actualizado:', newStatus)
+      toast.success('Estado actualizado')
+      
+      // Refrescar vistas
+      triggerRefresh()
+      if (onRefreshTasks) {
+        setTimeout(() => onRefreshTasks(), 100)
+      }
     } catch (err) {
       console.error('Error updating status:', err)
+      toast.error('Error al guardar')
       setEditedStatus(selectedTask.status)
     } finally {
       setIsSaving(false)
@@ -184,22 +378,15 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   // Update Due Date
   // ============================================
   const handleDueDateChange = async (newDate: string) => {
-    console.log('📅 handleDueDateChange llamado:', newDate)
-    
     if (!selectedTask) return
     
-    // Si la fecha es igual, no hacer nada
     const currentDate = selectedTask.due_date ? selectedTask.due_date.split('T')[0] : ''
-    if (newDate === currentDate) {
-      console.log('❌ No hay cambio de fecha')
-      return
-    }
+    if (newDate === currentDate) return
     
     setIsSavingDueDate(true)
     setEditedDueDate(newDate)
     
     try {
-      // Si newDate está vacío, guardar null
       const dueDateValue = newDate ? `${newDate}T12:00:00.000Z` : null
       
       const { data, error } = await supabase
@@ -218,15 +405,16 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         onTaskUpdated({ ...selectedTask, ...data })
       }
       
-      // Refrescar el Kanban/Lista para actualizar la vista
+      toast.success(newDate ? 'Fecha actualizada' : 'Fecha eliminada')
+      
+      // Refrescar vistas
+      triggerRefresh()
       if (onRefreshTasks) {
         setTimeout(() => onRefreshTasks(), 100)
       }
-      
-      console.log('✅ Fecha actualizada:', newDate || 'Sin fecha')
     } catch (err) {
       console.error('Error updating due date:', err)
-      // Revertir al valor anterior
+      toast.error('Error al guardar')
       if (selectedTask.due_date) {
         setEditedDueDate(selectedTask.due_date.split('T')[0])
       } else {
@@ -241,8 +429,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   // Cerrar TODO (modal + drawer + refrescar)
   // ============================================
   const handleCloseEverything = () => {
-    console.log("🚪 Cerrando todo...")
-
     setShowApprovalModal(false)
     setClientName('')
     setClientPhone('')
@@ -254,7 +440,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
     closeTaskDrawer()
 
     if (onRefreshTasks) {
-      console.log("🔄 Refrescando Kanban...")
       setTimeout(() => onRefreshTasks(), 0)
     }
   }
@@ -273,14 +458,8 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         .delete()
         .eq('id', selectedTask.id)
       
-     if (error) throw error
+      if (error) throw error
       
-      console.log('🗑️ Tarea eliminada:', selectedTask.title)
-      
-      // DEBUG
-      console.log('🔍 DEBUG - organization_id:', selectedTask.organization_id)
-      
-      // Log de auditoría
       logTaskDeleted(
         selectedTask.id,
         selectedTask.title,
@@ -292,7 +471,8 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       setShowDeleteModal(false)
       closeTaskDrawer()
       
-      // Refrescar DESPUÉS de cerrar
+      toast.success('Tarea eliminada')
+      
       setTimeout(() => {
         triggerRefresh()
         if (onRefreshTasks) {
@@ -300,10 +480,10 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         }
       }, 100)
       
-  } catch (err: any) {
-  console.error('❌ Error eliminando tarea:', err)
-  handleSupabaseError(err)
-} finally {
+    } catch (err: any) {
+      console.error('Error eliminando tarea:', err)
+      handleSupabaseError(err)
+    } finally {
       setIsDeleting(false)
     }
   }
@@ -312,21 +492,18 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
   // Solicitar Aprobación del Cliente
   // ============================================
   const handleRequestApproval = async () => {
-    console.log('🚀 handleRequestApproval iniciado')
-    
     if (!selectedTask) {
-      console.log('❌ No hay tarea seleccionada')
-      alert('Error: No hay tarea seleccionada')
+      toast.error('No hay tarea seleccionada')
       return
     }
     
     if (!clientName.trim()) {
-      alert('Por favor ingresa el nombre del cliente')
+      toast.error('Ingresa el nombre del cliente')
       return
     }
     
     if (!clientPhone.trim()) {
-      alert('Por favor ingresa el teléfono del cliente')
+      toast.error('Ingresa el teléfono del cliente')
       return
     }
 
@@ -335,7 +512,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
     
     try {
       const token = `${selectedTask.id.slice(0, 8)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-      console.log('🔑 Token generado:', token)
       
       const expiresAt = new Date()
       expiresAt.setHours(expiresAt.getHours() + 48)
@@ -363,12 +539,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         .select()
         .single()
 
-      if (error) {
-        console.error('❌ Error en INSERT:', error)
-        throw error
-      }
-
-      console.log('✅ Token insertado en Supabase')
+      if (error) throw error
 
       const { error: taskError } = await supabase
         .from('tasks')
@@ -379,9 +550,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         })
         .eq('id', selectedTask.id)
 
-      if (taskError) {
-        console.error('⚠️ Error actualizando tarea:', taskError)
-      } else {
+      if (!taskError) {
         setEditedStatus('needs_client_approval')
         if (onTaskUpdated) {
           onTaskUpdated({ ...selectedTask, status: 'needs_client_approval' })
@@ -391,11 +560,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       const baseUrl = window.location.origin
       const link = `${baseUrl}/approval/${token}`
       setApprovalLink(link)
-      
-      console.log('🔗 Link generado:', link)
 
-      console.log('📡 Enviando notificación a n8n...')
-      
       const cleanPhone = clientPhone.replace(/\D/g, '')
       
       const webhookPayload = {
@@ -405,8 +570,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         project_name: selectedTask.project?.name || 'Proyecto',
         expires_at: expiresAtFormatted
       }
-      
-      console.log('📦 Payload:', webhookPayload)
 
       try {
         const webhookResponse = await fetch(N8N_WEBHOOK_URL, {
@@ -418,21 +581,13 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
           body: JSON.stringify(webhookPayload)
         })
 
-        const webhookResult = await webhookResponse.json()
-        
         if (webhookResponse.ok) {
-          console.log('✅ n8n notificado exitosamente:', webhookResult)
           setTelegramSent(true)
-        } else {
-          console.error('⚠️ n8n respondió con error:', webhookResult)
         }
       } catch (webhookError) {
-        console.error('⚠️ Error llamando webhook n8n:', webhookError)
+        console.error('Error llamando webhook n8n:', webhookError)
       }
 
-      // ============================================
-      // 📝 REGISTRAR EN ACTIVITY LOG
-      // ============================================
       try {
         await logApprovalLinkSent(
           selectedTask.id,
@@ -441,22 +596,15 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
           'telegram',
           expiresAt.toISOString()
         )
-        console.log('✅ Activity log: approval_link_sent registrado')
       } catch (logError) {
-        console.error('⚠️ Error registrando activity log:', logError)
+        console.error('Error registrando activity log:', logError)
       }
-      console.log('✅ Proceso completado')
 
-      console.log('⏱️ Iniciando auto-cierre en 3 segundos...')
-      
       setAutoCloseCountdown(3)
-      
       setTimeout(() => setAutoCloseCountdown(2), 1000)
       setTimeout(() => setAutoCloseCountdown(1), 2000)
       
       setTimeout(() => {
-        console.log("🚪 Auto-cerrando...")
-
         setShowApprovalModal(false)
         setClientName('')
         setClientPhone('')
@@ -464,25 +612,22 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         setLinkCopied(false)
         setTelegramSent(false)
         setAutoCloseCountdown(null)
-
         closeTaskDrawer()
-
         if (onRefreshTasks) {
-          console.log("🔄 Refrescando Kanban...")
           setTimeout(() => onRefreshTasks(), 0)
         }
       }, 3000)
 
-   } catch (err: any) {
-  console.error('❌ Error completo:', err)
-  handleSupabaseError(err, {
-  customMessages: {
-    401: 'Tu sesión expiró. Vuelve a iniciar sesión.',
-    403: 'No tienes permisos para generar links de aprobación.',
-    406: 'La tarea ya no existe o fue eliminada.'
-  }
-})
-} finally {
+    } catch (err: any) {
+      console.error('Error:', err)
+      handleSupabaseError(err, {
+        customMessages: {
+          401: 'Tu sesión expiró. Vuelve a iniciar sesión.',
+          403: 'No tienes permisos para generar links de aprobación.',
+          406: 'La tarea ya no existe o fue eliminada.'
+        }
+      })
+    } finally {
       setIsRequestingApproval(false)
     }
   }
@@ -511,23 +656,13 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
 
   const handleSubmitComment = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log('🚀 Iniciando envío de comentario...')
-    console.log('selectedTask:', selectedTask)
-    console.log('newComment:', newComment)
     
-    if (!selectedTask || !newComment.trim()) {
-      console.log('❌ No hay tarea o comentario vacío')
-      return
-    }
+    if (!selectedTask || !newComment.trim()) return
 
     setIsSubmittingComment(true)
     try {
-      console.log('📡 Obteniendo usuario...')
       const { data: { user } } = await supabase.auth.getUser()
-      console.log('👤 Usuario:', user)
       if (!user) throw new Error('No autenticado')
-      
-      console.log('📝 Insertando comentario...')
 
       const { data, error } = await supabase
         .from('comments')
@@ -549,9 +684,9 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
 
       setComments((prev) => [...prev, data])
       setNewComment('')
-      console.log('✅ Comentario agregado')
     } catch (err) {
       console.error('Error adding comment:', err)
+      toast.error('Error al agregar comentario')
     } finally {
       setIsSubmittingComment(false)
     }
@@ -574,9 +709,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       <div
         className={cn(
           'fixed z-50 bg-bg-primary flex flex-col',
-          // Móvil: fullscreen
           'inset-0 w-full h-full',
-          // Desktop: panel lateral derecho
           'md:inset-auto md:right-0 md:top-0 md:h-full md:w-full md:max-w-lg md:border-l md:border-bg-tertiary',
           'animate-in slide-in-from-right duration-300'
         )}
@@ -584,7 +717,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
         {/* Header */}
         <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-bg-tertiary shrink-0">
           <div className="flex items-center gap-3">
-            {/* Botón volver - solo móvil */}
             <button
               onClick={closeTaskDrawer}
               className="md:hidden p-2 -ml-2 rounded-lg hover:bg-bg-tertiary text-text-secondary"
@@ -599,7 +731,6 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
               {selectedTask.project?.name || 'Proyecto'}
             </span>
           </div>
-          {/* Botón cerrar - solo desktop */}
           <button
             onClick={closeTaskDrawer}
             className="hidden md:block p-2 rounded-lg hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors"
@@ -610,20 +741,124 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          {/* Title & Description */}
+          {/* ============================================ */}
+          {/* TÍTULO EDITABLE */}
+          {/* ============================================ */}
           <div className="px-4 md:px-6 py-4 md:py-5 border-b border-bg-tertiary">
-            <h2 className="text-lg md:text-xl font-semibold text-text-primary mb-2 md:mb-3">
-              {selectedTask.title}
-            </h2>
-            {selectedTask.description ? (
-              <p className="text-text-secondary text-sm leading-relaxed">
-                {selectedTask.description}
-              </p>
+            {isEditingTitle ? (
+              <div className="space-y-2">
+                <input
+                  ref={titleInputRef}
+                  type="text"
+                  value={editedTitle}
+                  onChange={(e) => setEditedTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveTitle()
+                    if (e.key === 'Escape') {
+                      setIsEditingTitle(false)
+                      setEditedTitle(selectedTask.title)
+                    }
+                  }}
+                  className="w-full text-lg md:text-xl font-semibold text-text-primary bg-bg-secondary border border-accent-primary rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent-primary/50"
+                  disabled={isSavingTitle}
+                />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={handleSaveTitle}
+                    disabled={isSavingTitle || !editedTitle.trim()}
+                  >
+                    {isSavingTitle ? <Spinner size="sm" /> : 'Guardar'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setIsEditingTitle(false)
+                      setEditedTitle(selectedTask.title)
+                    }}
+                    disabled={isSavingTitle}
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
             ) : (
-              <p className="text-text-secondary/50 text-sm italic">
-                Sin descripción
-              </p>
+              <div 
+                className="group cursor-pointer"
+                onClick={() => setIsEditingTitle(true)}
+              >
+                <div className="flex items-start gap-2">
+                  <h2 className="text-lg md:text-xl font-semibold text-text-primary flex-1">
+                    {selectedTask.title}
+                  </h2>
+                  <Pencil className="w-4 h-4 text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity mt-1 shrink-0" />
+                </div>
+              </div>
             )}
+
+            {/* ============================================ */}
+            {/* DESCRIPCIÓN EDITABLE */}
+            {/* ============================================ */}
+            <div className="mt-3">
+              {isEditingDescription ? (
+                <div className="space-y-2">
+                  <textarea
+                    ref={descriptionTextareaRef}
+                    value={editedDescription}
+                    onChange={(e) => setEditedDescription(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setIsEditingDescription(false)
+                        setEditedDescription(selectedTask.description || '')
+                      }
+                    }}
+                    placeholder="Agregar descripción..."
+                    rows={4}
+                    className="w-full text-sm text-text-primary bg-bg-secondary border border-accent-primary rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-accent-primary/50 resize-none"
+                    disabled={isSavingDescription}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={handleSaveDescription}
+                      disabled={isSavingDescription}
+                    >
+                      {isSavingDescription ? <Spinner size="sm" /> : 'Guardar'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setIsEditingDescription(false)
+                        setEditedDescription(selectedTask.description || '')
+                      }}
+                      disabled={isSavingDescription}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div 
+                  className="group cursor-pointer"
+                  onClick={() => setIsEditingDescription(true)}
+                >
+                  <div className="flex items-start gap-2">
+                    {selectedTask.description ? (
+                      <p className="text-text-secondary text-sm leading-relaxed flex-1">
+                        {selectedTask.description}
+                      </p>
+                    ) : (
+                      <p className="text-text-secondary/50 text-sm italic flex-1">
+                        Agregar descripción...
+                      </p>
+                    )}
+                    <Pencil className="w-3 h-3 text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity mt-1 shrink-0" />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Blocking Alert */}
@@ -646,9 +881,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
             </div>
           )}
 
-          {/* ============================================ */}
           {/* BOTÓN SOLICITAR APROBACIÓN */}
-          {/* ============================================ */}
           <div className="px-4 md:px-6 py-4 border-b border-bg-tertiary">
             <Button
               onClick={() => setShowApprovalModal(true)}
@@ -660,9 +893,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
             </Button>
           </div>
 
-          {/* ============================================ */}
           {/* BOTÓN ELIMINAR TAREA */}
-          {/* ============================================ */}
           <div className="px-4 md:px-6 py-4 border-b border-bg-tertiary">
             <Button
               onClick={() => setShowDeleteModal(true)}
@@ -681,6 +912,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
               <span className="text-sm text-text-secondary flex items-center gap-2 shrink-0">
                 <CheckCircle2 className="w-4 h-4" />
                 Estado
+                {isSaving && <Spinner size="sm" />}
               </span>
               <select
                 value={editedStatus}
@@ -696,26 +928,31 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
               </select>
             </div>
 
-            {/* Priority */}
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-text-secondary flex items-center gap-2">
+            {/* ============================================ */}
+            {/* PRIORIDAD EDITABLE */}
+            {/* ============================================ */}
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm text-text-secondary flex items-center gap-2 shrink-0">
                 <AlertTriangle className="w-4 h-4" />
                 Prioridad
+                {isSavingPriority && <Spinner size="sm" />}
               </span>
-              <Badge
+              <select
+                value={editedPriority}
+                onChange={(e) => handlePriorityChange(e.target.value as Priority)}
+                disabled={isSavingPriority}
                 className={cn(
-                  'text-xs',
-                  selectedTask.priority === 'urgent' && 'bg-red-500/20 text-red-400',
-                  selectedTask.priority === 'high' && 'bg-orange-500/20 text-orange-400',
-                  selectedTask.priority === 'medium' && 'bg-yellow-500/20 text-yellow-400',
-                  selectedTask.priority === 'low' && 'bg-green-500/20 text-green-400'
+                  'text-sm bg-bg-secondary border border-bg-tertiary rounded-lg px-3 py-1.5',
+                  'focus:outline-none focus:ring-2 focus:ring-accent-primary/50',
+                  PRIORITY_CONFIG[editedPriority]?.color
                 )}
               >
-                {selectedTask.priority === 'urgent' && '🔴 Urgente'}
-                {selectedTask.priority === 'high' && '🟠 Alta'}
-                {selectedTask.priority === 'medium' && '🟡 Media'}
-                {selectedTask.priority === 'low' && '🟢 Baja'}
-              </Badge>
+                {Object.entries(PRIORITY_CONFIG).map(([value, config]) => (
+                  <option key={value} value={value}>
+                    {config.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Assignee */}
@@ -740,16 +977,12 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
               )}
             </div>
 
-            {/* ============================================ */}
             {/* Due Date - EDITABLE */}
-            {/* ============================================ */}
             <div className="flex items-center justify-between">
               <span className="text-sm text-text-secondary flex items-center gap-2">
                 <Calendar className="w-4 h-4" />
                 Fecha límite
-                {isSavingDueDate && (
-                  <Spinner size="sm" className="ml-1" />
-                )}
+                {isSavingDueDate && <Spinner size="sm" className="ml-1" />}
               </span>
               <input
                 type="date"
@@ -760,11 +993,9 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
                   'text-sm bg-bg-secondary border border-bg-tertiary rounded-lg px-3 py-1.5 text-text-primary',
                   'focus:outline-none focus:ring-2 focus:ring-accent-primary/50',
                   'cursor-pointer hover:border-accent-primary/50 transition-colors',
-                  // Estilo cuando está vencida
                   editedDueDate && new Date(editedDueDate) < new Date(new Date().toDateString())
                     ? 'text-accent-danger border-accent-danger/50'
                     : '',
-                  // Placeholder cuando no hay fecha
                   !editedDueDate && 'text-text-secondary/50'
                 )}
               />
@@ -804,10 +1035,10 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
           </div>
 
           {/* Attachments */}
-<TaskAttachments
-  taskId={selectedTask.id}
-  organizationId={selectedTask.organization_id}
-/>
+          <TaskAttachments
+            taskId={selectedTask.id}
+            organizationId={selectedTask.organization_id}
+          />
 
           {/* Links */}
           {(selectedTask.notion_page_url || selectedTask.google_doc_url) && (
