@@ -23,29 +23,47 @@ interface AuthState {
   ensureProfile: () => Promise<Profile | null>
 }
 
-// Helper to fetch or create profile
-async function fetchOrCreateProfile(userId: string, email: string, fullName?: string): Promise<Profile | null> {
-  try {
-    // Intentar obtener perfil existente
-    const { data: existingProfile, error: fetchError } = await supabase
+// Helper to fetch profile with retries (trigger may take a moment)
+async function fetchProfileWithRetry(userId: string, maxRetries = 3, delayMs = 500): Promise<Profile | null> {
+  for (let i = 0; i < maxRetries; i++) {
+    const { data: profile, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single()
 
-    if (existingProfile) {
-      console.log('✅ Profile found:', existingProfile.full_name)
-      return existingProfile
+    if (profile) {
+      console.log('✅ Profile found:', profile.full_name)
+      return profile
     }
 
-    // Si no existe y no es error de "not found", hay un problema
-    if (fetchError && fetchError.code !== 'PGRST116') {
-      console.error('Error fetching profile:', fetchError)
+    if (error && error.code !== 'PGRST116') {
+      console.error('Error fetching profile:', error)
       return null
     }
 
-    // Crear perfil si no existe (fallback si trigger no funcionó)
-    console.log('⚠️ Profile not found, creating fallback profile...')
+    // Wait before retry (trigger might still be running)
+    if (i < maxRetries - 1) {
+      console.log(`⏳ Profile not found, retrying in ${delayMs}ms... (${i + 1}/${maxRetries})`)
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
+  }
+
+  return null
+}
+
+// Helper to fetch or create profile
+async function fetchOrCreateProfile(userId: string, email: string, fullName?: string): Promise<Profile | null> {
+  try {
+    // Intentar obtener perfil existente (con reintentos para dar tiempo al trigger)
+    const existingProfile = await fetchProfileWithRetry(userId)
+    
+    if (existingProfile) {
+      return existingProfile
+    }
+
+    // Si después de reintentos no existe, crear fallback
+    console.log('⚠️ Profile not found after retries, creating fallback profile...')
     
     const { data: newProfile, error: createError } = await supabase
       .from('profiles')
@@ -61,11 +79,25 @@ async function fetchOrCreateProfile(userId: string, email: string, fullName?: st
       .single()
 
     if (createError) {
-      console.error('Error creating fallback profile:', createError)
+      // Si falla el INSERT (ej: RLS o ya existe), intentar leer de nuevo
+      console.log('⚠️ Fallback insert failed, trying to read again...')
+      
+      const { data: retryProfile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
+      
+      if (retryProfile) {
+        console.log('✅ Profile found on retry:', retryProfile.full_name)
+        return retryProfile
+      }
+      
+      console.error('❌ Error creating fallback profile:', createError)
       return null
     }
 
-    console.log('✅ Profile created:', newProfile.full_name)
+    console.log('✅ Fallback profile created:', newProfile.full_name)
     return newProfile
   } catch (err) {
     console.error('❌ fetchOrCreateProfile error:', err)
@@ -254,10 +286,7 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       console.log('✅ Register successful')
 
       if (data.user) {
-        // Esperar un momento para que el trigger cree el perfil
-        await new Promise((resolve) => setTimeout(resolve, 1500))
-        
-        // Obtener o crear perfil (fallback si trigger no funcionó)
+        // Obtener perfil (con reintentos para dar tiempo al trigger)
         const profile = await fetchOrCreateProfile(data.user.id, email, fullName)
 
         set({
