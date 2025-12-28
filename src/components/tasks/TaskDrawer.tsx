@@ -6,6 +6,7 @@ import { cn, STATUS_CONFIG, STATUS_LABELS, formatRelativeTime } from '@/lib/util
 import type { TaskDetailed, TaskStatus, Comment } from '@/types'
 import { logApprovalLinkSent, logTaskDeleted } from '@/lib/activity-logs'
 import { useTaskEventsStore } from '@/stores/task-events.store'
+import { TaskAttachments } from './TaskAttachments'
 import {
   X,
   Calendar,
@@ -801,6 +802,12 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
               </div>
             )}
           </div>
+
+          {/* Attachments */}
+<TaskAttachments
+  taskId={selectedTask.id}
+  organizationId={selectedTask.organization_id}
+/>
 
           {/* Links */}
           {(selectedTask.notion_page_url || selectedTask.google_doc_url) && (
