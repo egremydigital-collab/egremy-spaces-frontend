@@ -44,6 +44,11 @@ const PRIORITY_CONFIG = {
 } as const
 
 type Priority = keyof typeof PRIORITY_CONFIG
+interface TeamMember {
+  id: string
+  full_name: string
+  avatar_url: string | null
+}
 
 // ============================================
 // TaskDrawer - Panel lateral de detalles
@@ -82,6 +87,11 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
 
   const [editedPriority, setEditedPriority] = React.useState<Priority>('medium')
   const [isSavingPriority, setIsSavingPriority] = React.useState(false)
+
+  // Team members para asignación
+const [teamMembers, setTeamMembers] = React.useState<TeamMember[]>([])
+const [isLoadingMembers, setIsLoadingMembers] = React.useState(false)
+const [isSavingAssignee, setIsSavingAssignee] = React.useState(false)
 
   // Refs para inputs
   const titleInputRef = React.useRef<HTMLInputElement>(null)
@@ -124,6 +134,7 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       setIsEditingDescription(false)
       
       loadComments()
+      loadTeamMembers()
     }
   }, [selectedTask, taskDrawerOpen])
 
@@ -206,6 +217,26 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       console.error('Error loading comments:', err)
     }
   }
+  // Load team members
+const loadTeamMembers = async () => {
+  if (!selectedTask?.organization_id) return
+  
+  setIsLoadingMembers(true)
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, full_name, avatar_url')
+      .eq('organization_id', selectedTask.organization_id)
+      .order('full_name')
+
+    if (error) throw error
+    setTeamMembers(data || [])
+  } catch (err) {
+    console.error('Error loading team members:', err)
+  } finally {
+    setIsLoadingMembers(false)
+  }
+}
 
   // ============================================
   // GUARDAR TÍTULO
@@ -337,6 +368,54 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
       setIsSavingPriority(false)
     }
   }
+
+  // ============================================
+// CAMBIAR ASIGNADO
+// ============================================
+const handleAssigneeChange = async (newAssigneeId: string) => {
+  if (!selectedTask) return
+  
+  const currentAssigneeId = selectedTask.assignee?.id || ''
+  if (newAssigneeId === currentAssigneeId) return
+
+  setIsSavingAssignee(true)
+  
+  try {
+    const assigneeValue = newAssigneeId || null
+    
+    const { data, error } = await supabase
+      .from('tasks')
+      .update({ 
+        assignee_id: assigneeValue,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', selectedTask.id)
+      .select(`
+        *,
+        assignee:profiles!tasks_assignee_id_fkey(id, full_name, avatar_url, team),
+        project:projects!tasks_project_id_fkey(id, name, slug, client_name, color)
+      `)
+      .single()
+
+    if (error) throw error
+
+    if (onTaskUpdated && data) {
+      onTaskUpdated(data as TaskDetailed)
+    }
+    updateSelectedTask(data as TaskDetailed)
+    toast.success(newAssigneeId ? 'Asignado actualizado' : 'Asignación removida')
+    
+    triggerRefresh()
+    if (onRefreshTasks) {
+      setTimeout(() => onRefreshTasks(), 100)
+    }
+  } catch (err) {
+    console.error('Error updating assignee:', err)
+    toast.error('Error al cambiar asignado')
+  } finally {
+    setIsSavingAssignee(false)
+  }
+}
 
   // Update task status
   const handleStatusChange = async (newStatus: TaskStatus) => {
@@ -958,27 +1037,27 @@ export function TaskDrawer({ onTaskUpdated, onRefreshTasks }: TaskDrawerProps) {
               </select>
             </div>
 
-            {/* Assignee */}
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-text-secondary flex items-center gap-2">
-                <User className="w-4 h-4" />
-                Asignado
-              </span>
-              {selectedTask.assignee ? (
-                <div className="flex items-center gap-2">
-                  <Avatar
-                    name={selectedTask.assignee.full_name}
-                    src={selectedTask.assignee.avatar_url}
-                    size="sm"
-                  />
-                  <span className="text-sm text-text-primary truncate max-w-[120px]">
-                    {selectedTask.assignee.full_name}
-                  </span>
-                </div>
-              ) : (
-                <span className="text-sm text-text-secondary/50">Sin asignar</span>
-              )}
-            </div>
+         {/* Assignee - EDITABLE */}
+<div className="flex items-center justify-between gap-4">
+  <span className="text-sm text-text-secondary flex items-center gap-2 shrink-0">
+    <User className="w-4 h-4" />
+    Asignado
+    {isSavingAssignee && <Spinner size="sm" />}
+  </span>
+  <select
+    value={selectedTask.assignee?.id || ''}
+    onChange={(e) => handleAssigneeChange(e.target.value)}
+    disabled={isSavingAssignee || isLoadingMembers}
+    className="text-sm bg-bg-secondary border border-bg-tertiary rounded-lg px-3 py-1.5 text-text-primary focus:outline-none focus:ring-2 focus:ring-accent-primary/50 max-w-[180px] truncate"
+  >
+    <option value="">Sin asignar</option>
+    {teamMembers.map((member) => (
+      <option key={member.id} value={member.id}>
+        {member.full_name}
+      </option>
+    ))}
+  </select>
+</div>
 
             {/* Due Date - EDITABLE */}
             <div className="flex items-center justify-between">
