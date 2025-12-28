@@ -11,6 +11,7 @@ import type { Project, TaskDetailed, TaskStatus } from '@/types'
 import { useTaskEventsStore } from '@/stores/task-events.store'
 import { useAuthStore } from '@/stores/auth.store'
 import { useLocalStorage } from '@/hooks/useLocalStorage'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { GanttView } from '@/components/gantt/GanttView'
 import {
   ArrowLeft,
@@ -60,6 +61,8 @@ export function ProjectDetailPage() {
 const [isDeletingProject, setIsDeletingProject] = React.useState(false)
 const navigate = useNavigate()
 const { profile } = useAuthStore()
+// Atajos de teclado
+useKeyboardShortcuts()
   const [connectionStatus, setConnectionStatus] = React.useState<'connected' | 'reconnecting' | 'offline'>('offline')
 const [viewMode, setViewMode] = useLocalStorage<'kanban' | 'gantt'>(`project-${projectId}-viewMode`, 'kanban')
 
