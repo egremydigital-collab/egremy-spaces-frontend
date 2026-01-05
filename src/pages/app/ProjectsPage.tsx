@@ -55,6 +55,39 @@ export function ProjectsPage() {
     }
   }, [location.pathname]) // Re-ejecutar cuando cambia la ruta
 
+  // ============================================
+// 🔄 REFRESH AL VOLVER A LA PESTAÑA
+// ============================================
+React.useEffect(() => {
+  const refreshProjects = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('is_archived', false)
+        .order('updated_at', { ascending: false })
+
+      if (error) throw error
+      setProjects((data as Project[]) || [])
+    } catch (err: any) {
+      console.error('Error refreshing projects:', err)
+    }
+  }
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'visible') {
+      console.log('👁️ Usuario regresó, refrescando proyectos...')
+      refreshProjects()
+    }
+  }
+
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  
+  return () => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }
+}, [])
+
   const handleRetry = () => {
     setIsLoading(true)
     setErrorMsg(null)
