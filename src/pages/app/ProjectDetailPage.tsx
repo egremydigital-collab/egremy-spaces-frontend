@@ -314,23 +314,36 @@ React.useEffect(() => {
     }
   }, [projectId, isRealtimeConnected])
 
-  // ============================================
+
+// ============================================
 // 🔄 REFRESH AL VOLVER A LA PESTAÑA
 // ============================================
 React.useEffect(() => {
   const handleVisibilityChange = () => {
     if (document.visibilityState === 'visible' && projectId) {
       console.log('👁️ Usuario regresó a la pestaña, refrescando...')
+      // Refrescar datos inmediatamente
+      refreshTasks()
+      // También recargar proyecto por si cambió algo
+      loadProjectAndTasks()
+    }
+  }
+
+  const handleFocus = () => {
+    if (projectId) {
+      console.log('🎯 Ventana enfocada, verificando datos...')
       refreshTasks()
     }
   }
 
   document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('focus', handleFocus)
   
   return () => {
     document.removeEventListener('visibilitychange', handleVisibilityChange)
+    window.removeEventListener('focus', handleFocus)
   }
-}, [projectId, refreshTasks])
+}, [projectId, refreshTasks, loadProjectAndTasks])
 
   // ============================================
   // TASK UPDATE CALLBACK  // ============================================
