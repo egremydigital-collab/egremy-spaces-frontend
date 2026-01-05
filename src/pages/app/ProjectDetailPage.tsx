@@ -315,6 +315,24 @@ React.useEffect(() => {
   }, [projectId, isRealtimeConnected])
 
   // ============================================
+// 🔄 REFRESH AL VOLVER A LA PESTAÑA
+// ============================================
+React.useEffect(() => {
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'visible' && projectId) {
+      console.log('👁️ Usuario regresó a la pestaña, refrescando...')
+      refreshTasks()
+    }
+  }
+
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  
+  return () => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }
+}, [projectId, refreshTasks])
+
+  // ============================================
   // TASK UPDATE CALLBACK  // ============================================
   // ============================================
 // DELETE PROJECT
