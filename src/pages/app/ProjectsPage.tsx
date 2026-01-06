@@ -55,29 +55,30 @@ export function ProjectsPage() {
     }
   }, [location.pathname]) // Re-ejecutar cuando cambia la ruta
 
-  // ============================================
+// ============================================
 // 🔄 REFRESH AL VOLVER A LA PESTAÑA
 // ============================================
 React.useEffect(() => {
-  const refreshProjects = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('is_archived', false)
-        .order('updated_at', { ascending: false })
-
-      if (error) throw error
-      setProjects((data as Project[]) || [])
-    } catch (err: any) {
-      console.error('Error refreshing projects:', err)
-    }
-  }
-
-  const handleVisibilityChange = () => {
+  const handleVisibilityChange = async () => {
     if (document.visibilityState === 'visible') {
       console.log('👁️ Usuario regresó, refrescando proyectos...')
-      refreshProjects()
+      
+      // Forzar estado de carga a false para evitar pantalla de "Cargando..."
+      setIsLoading(false)
+      
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('is_archived', false)
+          .order('updated_at', { ascending: false })
+
+        if (error) throw error
+        setProjects((data as Project[]) || [])
+        console.log('✅ Proyectos refrescados:', data?.length || 0)
+      } catch (err: any) {
+        console.error('Error refreshing projects:', err)
+      }
     }
   }
 
