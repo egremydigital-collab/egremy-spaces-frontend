@@ -319,31 +319,39 @@ React.useEffect(() => {
 // 🔄 REFRESH AL VOLVER A LA PESTAÑA
 // ============================================
 React.useEffect(() => {
-  const handleVisibilityChange = () => {
+  const handleVisibilityChange = async () => {
     if (document.visibilityState === 'visible' && projectId) {
       console.log('👁️ Usuario regresó a la pestaña, refrescando...')
-      // Refrescar datos inmediatamente
-      refreshTasks()
-      // También recargar proyecto por si cambió algo
-      loadProjectAndTasks()
-    }
-  }
+      
+      // Forzar refresh - cargar datos directamente sin depender del estado isRefreshing
+      try {
+        const { data: tasksData } = await supabase
+          .from('tasks')
+          .select(`
+            *,
+            assignee:profiles!tasks_assignee_id_fkey(full_name, avatar_url, team),
+            project:projects!tasks_project_id_fkey(name, slug, client_name)
+          `)
+          .eq('project_id', projectId)
+          .is('parent_task_id', null)
+          .order('position', { ascending: true })
 
-  const handleFocus = () => {
-    if (projectId) {
-      console.log('🎯 Ventana enfocada, verificando datos...')
-      refreshTasks()
+        if (tasksData) {
+          setTasks(tasksData)
+          console.log('✅ Tasks refreshed on visibility change:', tasksData.length)
+        }
+      } catch (error) {
+        console.error('Error refreshing on visibility change:', error)
+      }
     }
   }
 
   document.addEventListener('visibilitychange', handleVisibilityChange)
-  window.addEventListener('focus', handleFocus)
   
   return () => {
     document.removeEventListener('visibilitychange', handleVisibilityChange)
-    window.removeEventListener('focus', handleFocus)
   }
-}, [projectId, refreshTasks, loadProjectAndTasks])
+}, [projectId])
 
   // ============================================
   // TASK UPDATE CALLBACK  // ============================================
