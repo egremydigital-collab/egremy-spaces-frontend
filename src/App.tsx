@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth.store'
 import { Layout, AuthGuard, GuestGuard } from '@/components/layout'
 import { PageLoader } from '@/components/ui'
+import { supabase } from '@/lib/supabase'
 import {
   LoginPage,
   DashboardPage,
@@ -21,6 +22,39 @@ export default function App() {
   React.useEffect(() => {
     initialize()
   }, [initialize])
+
+  // ============================================
+  // 🔄 REFRESH SESIÓN AL VOLVER A LA PESTAÑA
+  // ============================================
+  React.useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        console.log('👁️ App: Usuario regresó, verificando sesión...')
+        
+        try {
+          // Refrescar la sesión de Supabase
+          const { data, error } = await supabase.auth.getSession()
+          
+          if (error) {
+            console.error('Error refreshing session:', error)
+            return
+          }
+          
+          if (data.session) {
+            console.log('✅ Sesión válida')
+          }
+        } catch (err) {
+          console.error('Error checking session:', err)
+        }
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
 
   // Show loader while initializing
   if (!isInitialized) {
