@@ -10,8 +10,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const { user, isLoading, isInitialized } = useAuthStore()
   const location = useLocation()
 
-  // Mostrar loader mientras se inicializa auth
-  if (!isInitialized || isLoading) {
+  // Solo mostrar loader en la inicialización inicial, NO en recargas
+  if (!isInitialized) {
     return <PageLoader />
   }
 
@@ -20,6 +20,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
+  // Ya inicializado y hay usuario - mostrar contenido
+  // (ignoramos isLoading para evitar bloqueos al volver de otra pestaña)
   return <>{children}</>
 }
 
@@ -28,7 +30,8 @@ export function GuestGuard({ children }: AuthGuardProps) {
   const { user, isLoading, isInitialized } = useAuthStore()
   const location = useLocation()
 
-  if (!isInitialized || isLoading) {
+  // Solo mostrar loader en la inicialización inicial
+  if (!isInitialized) {
     return <PageLoader />
   }
 
